@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { areas, bandCentralSteps } from '@/lib/mock-data';
 import { Status, WorkItem } from '@/lib/types';
@@ -19,7 +19,7 @@ export default function Home() {
   const [userId, setUserId] = useState('');
   const [loadingData, setLoadingData] = useState(true);
   const [dataError, setDataError] = useState('');
-  const supabase = useMemo(() => createClient(), []);
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const [view, setView] = useState<View>('Command Center');
   const [selected, setSelected] = useState<WorkItem | null>(null);
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -33,6 +33,8 @@ export default function Home() {
     let cancelled = false;
 
     async function loadWorkItems() {
+      const supabase = createClient();
+      supabaseRef.current = supabase;
       const { data: userData, error: userError } = await supabase.auth.getUser();
       if (cancelled) return;
       if (userError || !userData.user) {
@@ -59,7 +61,7 @@ export default function Home() {
 
     void loadWorkItems();
     return () => { cancelled = true; };
-  }, [supabase]);
+  }, []);
 
   const metrics = useMemo(() => ({
     Active: items.filter(i => i.status === 'Active').length,
@@ -73,7 +75,8 @@ export default function Home() {
     if (status === 'Done' && !confirm('Has the intended outcome actually been completed?')) return;
 
     const previous = items.find(i => i.id === id);
-    if (!previous) return;
+    const supabase = supabaseRef.current;
+    if (!previous || !supabase) return;
 
     const changedAt = new Date().toISOString();
     setItems(prev => prev.map(i => i.id === id ? { ...i, status, lastActivityDays: 0 } : i));
@@ -108,7 +111,8 @@ export default function Home() {
   }
 
   async function saveCapturedItem(item: WorkItem) {
-    if (!userId) {
+    const supabase = supabaseRef.current;
+    if (!userId || !supabase) {
       alert('Your Work OS session is not ready yet.');
       return;
     }
