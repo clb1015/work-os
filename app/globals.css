@@ -220,3 +220,20 @@ button.primary,.primary{background:linear-gradient(180deg,#1aaea2,#138c85)!impor
 }
 
 .data-state{margin:0 0 18px;border:1px solid var(--line);background:#0d1924;border-radius:8px;padding:11px 13px;color:#8fa0af;font-size:12px}.data-state.error{border-color:rgba(239,91,100,.32);background:rgba(239,91,100,.07);color:#ef8a91}
+
+.drawer-title-edit{min-width:0;flex:1}
+.drawer-title-input{display:block;width:100%;margin-top:8px;border:0;border-bottom:1px solid var(--line);background:transparent;color:var(--text);font-size:24px;font-weight:700;letter-spacing:-.025em;padding:0 0 7px;outline:none}
+.drawer-title-input:focus{border-bottom-color:var(--accent)}
+.editable-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+.editable-fields label{min-width:0}
+.editable-fields input,.editable-fields select,.editable-detail input,.editable-detail textarea{width:100%;border:1px solid var(--line);background:#0d1924;color:var(--text);border-radius:7px;padding:9px 10px}
+.editable-detail textarea{resize:vertical;min-height:78px;line-height:1.45}
+.muted-line{color:#718395!important;font-size:11px!important}
+.relationship-list,.source-list,.activity-list{display:grid;gap:7px}
+.relationship-list>div,.source-list>div,.activity-list>div{display:flex;justify-content:space-between;gap:14px;align-items:center;border:1px solid var(--line);background:#0d1924;border-radius:7px;padding:9px 10px}
+.relationship-list strong,.source-list strong,.activity-list strong{font-size:11px;color:#d8e1e8;font-weight:600}
+.relationship-list small,.source-list small,.activity-list small{font-size:10px;color:#718395;text-align:right}
+.drawer-savebar{position:sticky;bottom:-22px;margin:18px -22px -22px;padding:13px 22px;background:rgba(9,19,29,.96);border-top:1px solid var(--line-strong);display:flex;justify-content:space-between;align-items:center;gap:16px;backdrop-filter:blur(14px)}
+.drawer-savebar span{font-size:10px;color:#718395}
+.drawer-savebar button:disabled{opacity:.6;cursor:wait}
+@media(max-width:760px){.editable-fields{grid-template-columns:1fr}.drawer-savebar{align-items:flex-start;flex-direction:column}.drawer-savebar button{width:100%}}
