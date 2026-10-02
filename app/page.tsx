@@ -12,6 +12,17 @@ const viewIcons: Record<View,string> = {
   'Command Center':'⌂','Board':'▦','Projects':'□','Ideas':'◌','Workflows':'⌘','Dashboards & Tools':'▣','Waiting':'◷','Completed':'✓','Search':'⌕'
 };
 const statuses: Status[] = ['Inbox','Clarify','Ready','Active','Waiting','Review','Done'];
+const priorities: WorkItem['priority'][] = ['Now','Next','Later','Someday'];
+const impacts: WorkItem['impact'][] = ['Low','Medium','High'];
+const efforts: WorkItem['effort'][] = ['Quick','Moderate','Significant'];
+const workTypes: WorkItem['type'][] = ['Project','Idea','Workflow','Dashboard','Tool / App','Resource','Decision','Issue','Presentation'];
+
+type ItemDetails = {
+  relationships: { id:string; title:string; relationshipType:string }[];
+  tags: string[];
+  sources: { id:string; name:string; sourceType:string; location?:string; isPrimary:boolean }[];
+  activity: { id:string; action:string; details:Record<string,unknown>; createdAt:string }[];
+};
 
 export default function Home() {
   const [items, setItems] = useState<WorkItem[]>([]);
@@ -27,6 +38,8 @@ export default function Home() {
   const [aiResponse, setAiResponse] = useState('');
   const [areaFilter, setAreaFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
+  const [itemDetails, setItemDetails] = useState<ItemDetails | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,7 +66,47 @@ export default function Home() {
         console.error('Unable to load work items', error);
         setDataError('Unable to load your Work OS data.');
       } else {
-        setItems((data ?? []).map(row => workItemFromRow(row)));
+        const baseItems = (data ?? []).map(row => workItemFromRow(row));
+        const [relationshipResult, tagLinkResult, tagResult, sourceLinkResult, sourceResult] = await Promise.all([
+          supabase.from('work_item_relationships').select('from_item_id,to_item_id,relationship_type'),
+          supabase.from('work_item_tags').select('work_item_id,tag_id'),
+          supabase.from('tags').select('id,name'),
+          supabase.from('work_item_sources').select('work_item_id,source_id,is_primary'),
+          supabase.from('sources_of_truth').select('id,name'),
+        ]);
+
+        const titleById = new Map(baseItems.map(item => [item.id, item.title]));
+        const tagNameById = new Map((tagResult.data ?? []).map(tag => [tag.id, tag.name]));
+        const sourceNameById = new Map((sourceResult.data ?? []).map(source => [source.id, source.name]));
+        const tagsByItem = new Map<string,string[]>();
+        const sourcesByItem = new Map<string,string>();
+        const relatedByItem = new Map<string,string[]>();
+
+        for (const link of tagLinkResult.data ?? []) {
+          const name = tagNameById.get(link.tag_id);
+          if (!name) continue;
+          tagsByItem.set(link.work_item_id, [...(tagsByItem.get(link.work_item_id) ?? []), name]);
+        }
+
+        for (const link of sourceLinkResult.data ?? []) {
+          const name = sourceNameById.get(link.source_id);
+          if (!name) continue;
+          if (link.is_primary || !sourcesByItem.has(link.work_item_id)) sourcesByItem.set(link.work_item_id, name);
+        }
+
+        for (const relationship of relationshipResult.data ?? []) {
+          const fromTitle = titleById.get(relationship.from_item_id);
+          const toTitle = titleById.get(relationship.to_item_id);
+          if (toTitle) relatedByItem.set(relationship.from_item_id, [...(relatedByItem.get(relationship.from_item_id) ?? []), toTitle]);
+          if (fromTitle) relatedByItem.set(relationship.to_item_id, [...(relatedByItem.get(relationship.to_item_id) ?? []), fromTitle]);
+        }
+
+        setItems(baseItems.map(item => ({
+          ...item,
+          tags: tagsByItem.get(item.id),
+          source: sourcesByItem.get(item.id),
+          relatedItems: relatedByItem.get(item.id),
+        })));
       }
       setLoadingData(false);
     }
@@ -61,6 +114,73 @@ export default function Home() {
     void loadWorkItems();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = supabaseRef.current;
+
+    async function loadDetails(itemId: string) {
+      if (!supabase) return;
+      setDetailLoading(true);
+      setItemDetails(null);
+
+      const [relationshipResult, tagLinkResult, sourceLinkResult, activityResult] = await Promise.all([
+        supabase.from('work_item_relationships').select('id,from_item_id,to_item_id,relationship_type').or(`from_item_id.eq.${itemId},to_item_id.eq.${itemId}`),
+        supabase.from('work_item_tags').select('tag_id').eq('work_item_id', itemId),
+        supabase.from('work_item_sources').select('source_id,is_primary').eq('work_item_id', itemId),
+        supabase.from('activity_history').select('id,action,details,created_at').eq('work_item_id', itemId).order('created_at', { ascending: false }).limit(30),
+      ]);
+
+      if (cancelled) return;
+
+      const relationshipRows = relationshipResult.data ?? [];
+      const otherIds = [...new Set(relationshipRows.map(row => row.from_item_id === itemId ? row.to_item_id : row.from_item_id))];
+      const tagIds = (tagLinkResult.data ?? []).map(row => row.tag_id);
+      const sourceLinks = sourceLinkResult.data ?? [];
+      const sourceIds = sourceLinks.map(row => row.source_id);
+
+      const [relatedItemsResult, tagsResult, sourcesResult] = await Promise.all([
+        otherIds.length ? supabase.from('work_items').select('id,title').in('id', otherIds) : Promise.resolve({ data: [] as {id:string;title:string}[] }),
+        tagIds.length ? supabase.from('tags').select('id,name').in('id', tagIds) : Promise.resolve({ data: [] as {id:string;name:string}[] }),
+        sourceIds.length ? supabase.from('sources_of_truth').select('id,name,source_type,location').in('id', sourceIds) : Promise.resolve({ data: [] as {id:string;name:string;source_type:string;location:string|null}[] }),
+      ]);
+
+      if (cancelled) return;
+
+      const relatedById = new Map((relatedItemsResult.data ?? []).map(row => [row.id, row.title]));
+      const sourceLinkById = new Map(sourceLinks.map(row => [row.source_id, row.is_primary]));
+
+      setItemDetails({
+        relationships: relationshipRows.map(row => {
+          const otherId = row.from_item_id === itemId ? row.to_item_id : row.from_item_id;
+          return { id: otherId, title: relatedById.get(otherId) ?? 'Related work', relationshipType: row.relationship_type };
+        }),
+        tags: (tagsResult.data ?? []).map(row => row.name),
+        sources: (sourcesResult.data ?? []).map(row => ({
+          id: row.id,
+          name: row.name,
+          sourceType: row.source_type,
+          location: row.location ?? undefined,
+          isPrimary: sourceLinkById.get(row.id) ?? false,
+        })),
+        activity: (activityResult.data ?? []).map(row => ({
+          id: row.id,
+          action: row.action,
+          details: (row.details ?? {}) as Record<string,unknown>,
+          createdAt: row.created_at,
+        })),
+      });
+      setDetailLoading(false);
+    }
+
+    if (selected?.id) void loadDetails(selected.id);
+    else {
+      setItemDetails(null);
+      setDetailLoading(false);
+    }
+
+    return () => { cancelled = true; };
+  }, [selected?.id]);
 
   const metrics = useMemo(() => ({
     Active: items.filter(i => i.status === 'Active').length,
@@ -211,7 +331,7 @@ export default function Home() {
         </section>
         <div className="ai-bar"><input value={aiText} onChange={e=>setAiText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')runAi(aiText)}} placeholder="Ask Work OS... What's worth working on today?"/><button onClick={()=>runAi(aiText)}>Ask</button>{aiResponse && <div className="ai-popover"><strong>Mock GPT-6.1 Sol</strong><p>{aiResponse}</p><button onClick={()=>setAiResponse('')}>Close</button></div>}</div>
       </main>
-      {selected && <Drawer item={selected} onClose={()=>setSelected(null)} onMove={moveItem} />}
+      {selected && <Drawer item={selected} details={itemDetails} loadingDetails={detailLoading} onClose={()=>setSelected(null)} onMove={moveItem} onPatch={patchItem} />}
       {captureOpen && <Capture items={items} onClose={()=>setCaptureOpen(false)} onSave={saveCapturedItem} onOpenExisting={(id)=>{const found=items.find(i=>i.legacyId===id||i.id===id); if(found){setSelected(found);setCaptureOpen(false)}}} />}
     </div>
   );
@@ -268,7 +388,106 @@ function SearchView({items,query,setQuery,onOpen,runAi,aiResponse}:{items:WorkIt
 function WorkCard({item,onOpen}:{item:WorkItem;onOpen:(i:WorkItem)=>void}){return <button className="work-card" onClick={()=>onOpen(item)}><div className="work-card-top"><span className="type-chip">{item.type}</span><span className="priority-mark">{item.priority}</span></div><strong>{item.title}</strong><span className="area-dot-line"><i></i>{item.area}</span><small><b>Next:</b> {item.nextAction||'Set a next action'}</small><div className="work-card-footer"><span>{item.impact} impact</span><span>{item.effort}</span></div></button>}
 function SectionTitle({title,subtitle}:{title:string;subtitle:string}){return <div className="section-title"><div><h2>{title}</h2><p>{subtitle}</p></div></div>}
 
-function Drawer({item,onClose,onMove}:{item:WorkItem;onClose:()=>void;onMove:(id:string,s:Status)=>void}){return <div className="drawer-backdrop" onClick={onClose}><aside className="drawer" onClick={e=>e.stopPropagation()}><div className="drawer-head"><div><span className="type-chip">{item.type}</span><h2>{item.title}</h2><p className="drawer-subtitle">{item.area}</p></div><button onClick={onClose}>×</button></div><div className="drawer-tabs"><button className="active">Overview</button><button>Updates</button><button>Links</button></div><div className="field-row"><label>Status<select value={item.status} onChange={e=>onMove(item.id,e.target.value as Status)}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label><label>Priority<strong>{item.priority}</strong></label><label>Impact<strong>{item.impact}</strong></label><label>Effort<strong>{item.effort}</strong></label></div><Detail label="Outcome" value={item.outcome}/><Detail label="Next Action" value={item.nextAction||'No next action set.'}/><Detail label="Why Now" value={item.whyNow}/><Detail label="Waiting On" value={item.waitingOn}/><Detail label="Source of Truth" value={item.source||'Not set'}/>{item.relatedItems?.length?<div className="detail"><span>Relationships</span><div className="tags">{item.relatedItems.map(r=><b key={r}>{r}</b>)}</div></div>:null}<div className="detail"><span>Ask about this work</span><input placeholder={`What still needs to happen with ${item.title}?`}/></div></aside></div>}
-function Detail({label,value}:{label:string;value?:string}){if(!value)return null;return <div className="detail"><span>{label}</span><p>{value}</p></div>}
+function Drawer({
+  item,details,loadingDetails,onClose,onMove,onPatch
+}:{
+  item:WorkItem;
+  details:ItemDetails|null;
+  loadingDetails:boolean;
+  onClose:()=>void;
+  onMove:(id:string,s:Status)=>Promise<void>;
+  onPatch:(id:string,patch:Partial<WorkItem>)=>Promise<void>;
+}){
+  const [draft,setDraft]=useState<WorkItem>(item);
+  const [saving,setSaving]=useState(false);
+
+  useEffect(()=>setDraft(item),[item]);
+
+  async function save(){
+    setSaving(true);
+    const statusChanged=draft.status!==item.status;
+    if(statusChanged) await onMove(item.id,draft.status);
+    await onPatch(item.id,{
+      title:draft.title,
+      type:draft.type,
+      area:draft.area,
+      priority:draft.priority,
+      impact:draft.impact,
+      effort:draft.effort,
+      outcome:draft.outcome,
+      nextAction:draft.nextAction,
+      whyNow:draft.whyNow,
+      waitingOn:draft.waitingOn,
+      targetDate:draft.targetDate,
+      purpose:draft.purpose,
+      notes:draft.notes,
+      ideaStage:draft.ideaStage,
+    });
+    setSaving(false);
+  }
+
+  return <div className="drawer-backdrop" onClick={onClose}>
+    <aside className="drawer" onClick={e=>e.stopPropagation()}>
+      <div className="drawer-head">
+        <div className="drawer-title-edit">
+          <span className="type-chip">{draft.type}</span>
+          <input className="drawer-title-input" value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/>
+          <p className="drawer-subtitle">{draft.area}</p>
+        </div>
+        <button onClick={onClose}>×</button>
+      </div>
+      <div className="drawer-tabs"><button className="active">Overview</button><button>Activity</button><button>Links</button></div>
+
+      <div className="field-row editable-fields">
+        <label>Status<select value={draft.status} onChange={e=>setDraft({...draft,status:e.target.value as Status})}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label>
+        <label>Priority<select value={draft.priority} onChange={e=>setDraft({...draft,priority:e.target.value as WorkItem['priority']})}>{priorities.map(v=><option key={v}>{v}</option>)}</select></label>
+        <label>Impact<select value={draft.impact} onChange={e=>setDraft({...draft,impact:e.target.value as WorkItem['impact']})}>{impacts.map(v=><option key={v}>{v}</option>)}</select></label>
+        <label>Effort<select value={draft.effort} onChange={e=>setDraft({...draft,effort:e.target.value as WorkItem['effort']})}>{efforts.map(v=><option key={v}>{v}</option>)}</select></label>
+        <label>Type<select value={draft.type} onChange={e=>setDraft({...draft,type:e.target.value as WorkItem['type']})}>{workTypes.map(v=><option key={v}>{v}</option>)}</select></label>
+        <label>Area<select value={draft.area} onChange={e=>setDraft({...draft,area:e.target.value})}>{areas.map(v=><option key={v}>{v}</option>)}</select></label>
+        <label>Target Date<input type="date" value={draft.targetDate||''} onChange={e=>setDraft({...draft,targetDate:e.target.value||undefined})}/></label>
+        {draft.type==='Idea'&&<label>Idea Stage<select value={draft.ideaStage||'Spark'} onChange={e=>setDraft({...draft,ideaStage:e.target.value as WorkItem['ideaStage']})}>{['Spark','Explore','Promising','Commit','Park'].map(v=><option key={v}>{v}</option>)}</select></label>}
+      </div>
+
+      <EditableDetail label="Outcome" value={draft.outcome} onChange={value=>setDraft({...draft,outcome:value})} multiline/>
+      <EditableDetail label="Next Action" value={draft.nextAction} onChange={value=>setDraft({...draft,nextAction:value})} multiline/>
+      <EditableDetail label="Why Now" value={draft.whyNow} onChange={value=>setDraft({...draft,whyNow:value})} multiline/>
+      <EditableDetail label="Waiting On" value={draft.waitingOn} onChange={value=>setDraft({...draft,waitingOn:value})}/>
+      <EditableDetail label="Purpose" value={draft.purpose} onChange={value=>setDraft({...draft,purpose:value})} multiline/>
+      <EditableDetail label="Notes" value={draft.notes} onChange={value=>setDraft({...draft,notes:value})} multiline/>
+
+      <div className="detail">
+        <span>Tags</span>
+        {loadingDetails?<p className="muted-line">Loading tags…</p>:details?.tags.length?<div className="tags">{details.tags.map(tag=><b key={tag}>{tag}</b>)}</div>:<p className="muted-line">No tags linked.</p>}
+      </div>
+
+      <div className="detail">
+        <span>Relationships</span>
+        {loadingDetails?<p className="muted-line">Loading relationships…</p>:details?.relationships.length?<div className="relationship-list">{details.relationships.map(rel=><div key={rel.id}><strong>{rel.title}</strong><small>{rel.relationshipType.replaceAll('_',' ')}</small></div>)}</div>:<p className="muted-line">No relationships linked.</p>}
+      </div>
+
+      <div className="detail">
+        <span>Sources of Truth</span>
+        {loadingDetails?<p className="muted-line">Loading sources…</p>:details?.sources.length?<div className="source-list">{details.sources.map(source=><div key={source.id}><strong>{source.name}{source.isPrimary?' · Primary':''}</strong><small>{source.sourceType}{source.location?' · '+source.location:''}</small></div>)}</div>:<p className="muted-line">No source linked.</p>}
+      </div>
+
+      <div className="detail">
+        <span>Activity</span>
+        {loadingDetails?<p className="muted-line">Loading activity…</p>:details?.activity.length?<div className="activity-list">{details.activity.map(entry=><div key={entry.id}><strong>{entry.action.replaceAll('_',' ')}</strong><small>{new Date(entry.createdAt).toLocaleString()}</small></div>)}</div>:<p className="muted-line">No activity recorded.</p>}
+      </div>
+
+      <div className="drawer-savebar">
+        <span>Changes save to Supabase and remain after refresh.</span>
+        <button className="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save changes'}</button>
+      </div>
+    </aside>
+  </div>
+}
+
+function EditableDetail({label,value,onChange,multiline=false}:{label:string;value?:string;onChange:(value:string|undefined)=>void;multiline?:boolean}){
+  return <div className="detail editable-detail"><span>{label}</span>{multiline
+    ?<textarea value={value||''} onChange={e=>onChange(e.target.value||undefined)} rows={3}/>
+    :<input value={value||''} onChange={e=>onChange(e.target.value||undefined)}/>}</div>
+}
 
 function Capture({items,onClose,onSave,onOpenExisting}:{items:WorkItem[];onClose:()=>void;onSave:(i:WorkItem)=>void;onOpenExisting:(id:string)=>void}){const [text,setText]=useState('');const [analyzed,setAnalyzed]=useState(false);const overlap=text.toLowerCase().includes('enrollment')||text.toLowerCase().includes('importer'); const proposal:WorkItem={id:`idea-${Date.now()}`,title:overlap?'Enrollment Importer Idea':'Arts Equipment Replacement Cycle',type:'Idea',area:overlap?'Data / Analytics':'Finance & Budget',status:'Inbox',priority:'Later',impact:'High',effort:'Significant',ideaStage:'Spark',nextAction:overlap?'Compare against existing canonical importer.':'Explore overlap with inventory, Band Central, and FF&E planning.'};return <div className="modal-backdrop"><div className="modal"><div className="drawer-head"><div><span className="kicker">Quick capture</span><h2>What's on your mind?</h2></div><button onClick={onClose}>×</button></div>{!analyzed?<><textarea value={text} onChange={e=>setText(e.target.value)} placeholder="We need a better way to track when instruments should be replaced across schools."/><button className="primary wide" onClick={()=>setAnalyzed(true)} disabled={!text.trim()}>Analyze</button></>:overlap?<div className="proposal"><div className="duplicate-alert"><strong>Related existing work found</strong><h3>Arts Import & Reconciliation</h3><p>Your new idea appears to overlap substantially with the canonical importer already in Review.</p><div className="modal-actions"><button className="primary" onClick={()=>onOpenExisting('importer')}>Continue existing work</button><button onClick={()=>onSave(proposal)}>Create separate idea anyway</button></div></div></div>:<div className="proposal"><span className="kicker">Mock GPT-6.1 Sol proposal</span><h3>{proposal.title}</h3><div className="proposal-grid"><span>Type<b>{proposal.type}</b></span><span>Stage<b>{proposal.ideaStage}</b></span><span>Area<b>{proposal.area}</b></span><span>Status<b>{proposal.status}</b></span></div><p>This may relate to existing equipment planning rather than requiring a new project.</p><div className="related-box"><strong>Possible existing work</strong><span>Band Central Funding</span><span>FF&E Lessons Learned</span></div><div className="modal-actions"><button onClick={()=>setAnalyzed(false)}>Edit</button><button className="primary" onClick={()=>onSave(proposal)}>Save</button></div></div>}</div></div>}
