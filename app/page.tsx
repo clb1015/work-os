@@ -40,6 +40,7 @@ export default function Home() {
   const [typeFilter, setTypeFilter] = useState('All');
   const [itemDetails, setItemDetails] = useState<ItemDetails | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailRefresh, setDetailRefresh] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -180,7 +181,7 @@ export default function Home() {
     }
 
     return () => { cancelled = true; };
-  }, [selected?.id]);
+  }, [selected?.id, detailRefresh]);
 
   const metrics = useMemo(() => ({
     Active: items.filter(i => i.status === 'Active').length,
@@ -227,6 +228,7 @@ export default function Home() {
         details: { from: previous.status, to: status },
       });
     }
+    setDetailRefresh(v=>v+1);
   }
 
   async function saveCapturedItem(item: WorkItem) {
@@ -290,6 +292,7 @@ export default function Home() {
         details: { fields: Object.keys(patch) },
       });
     }
+    setDetailRefresh(v=>v+1);
   }
 
 
