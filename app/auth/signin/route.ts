@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 
-const ALLOWED_USER_ID = '8f47f341-12df-4d81-a0d6-916e5ca73993';
+const ALLOWED_USER_ID = 'ea11b45a-21d5-4c5b-a2ec-6a252ba982f7';
 
 export async function POST(request: Request) {
   const formData = await request.formData();
