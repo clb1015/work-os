@@ -87,3 +87,24 @@ export function workItemInsert(item: WorkItem, userId: string) {
     },
   };
 }
+
+
+export function workItemPatch(patch: Partial<WorkItem>) {
+  const row: Record<string, unknown> = { last_activity_at: new Date().toISOString() };
+  if ('title' in patch) row.title = patch.title;
+  if ('type' in patch) row.type = patch.type;
+  if ('area' in patch) row.area = patch.area;
+  if ('status' in patch) row.status = patch.status;
+  if ('priority' in patch) row.priority = patch.priority;
+  if ('impact' in patch) row.impact = patch.impact;
+  if ('effort' in patch) row.effort = patch.effort;
+  if ('outcome' in patch) row.outcome = patch.outcome ?? null;
+  if ('nextAction' in patch) row.next_action = patch.nextAction ?? null;
+  if ('whyNow' in patch) row.why_now = patch.whyNow ?? null;
+  if ('waitingOn' in patch) row.waiting_on = patch.waitingOn ?? null;
+  if ('targetDate' in patch) row.target_date = patch.targetDate ?? null;
+  if ('notes' in patch) row.notes = patch.notes ?? null;
+  if ('ideaStage' in patch) row.idea_stage = patch.ideaStage ?? null;
+  if ('purpose' in patch) row.purpose = patch.purpose ?? null;
+  return row;
+}
