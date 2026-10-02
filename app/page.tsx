@@ -1,9 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { areas, bandCentralSteps, initialItems } from '@/lib/mock-data';
+import { areas, bandCentralSteps } from '@/lib/mock-data';
 import { Status, WorkItem } from '@/lib/types';
+import { createClient } from '@/lib/supabase/client';
+import { workItemFromRow, workItemInsert } from '@/lib/work-items';
 
 type View = 'Command Center' | 'Board' | 'Projects' | 'Ideas' | 'Workflows' | 'Dashboards & Tools' | 'Waiting' | 'Completed' | 'Search';
 const views: View[] = ['Command Center','Board','Projects','Ideas','Workflows','Dashboards & Tools','Waiting','Completed','Search'];
@@ -13,7 +15,11 @@ const viewIcons: Record<View,string> = {
 const statuses: Status[] = ['Inbox','Clarify','Ready','Active','Waiting','Review','Done'];
 
 export default function Home() {
-  const [items, setItems] = useState(initialItems);
+  const [items, setItems] = useState<WorkItem[]>([]);
+  const [userId, setUserId] = useState('');
+  const [loadingData, setLoadingData] = useState(true);
+  const [dataError, setDataError] = useState('');
+  const supabase = useMemo(() => createClient(), []);
   const [view, setView] = useState<View>('Command Center');
   const [selected, setSelected] = useState<WorkItem | null>(null);
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -23,6 +29,38 @@ export default function Home() {
   const [areaFilter, setAreaFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadWorkItems() {
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (userError || !userData.user) {
+        setDataError('Unable to verify your Work OS session.');
+        setLoadingData(false);
+        return;
+      }
+
+      setUserId(userData.user.id);
+      const { data, error } = await supabase
+        .from('work_items')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (cancelled) return;
+      if (error) {
+        console.error('Unable to load work items', error);
+        setDataError('Unable to load your Work OS data.');
+      } else {
+        setItems((data ?? []).map(row => workItemFromRow(row)));
+      }
+      setLoadingData(false);
+    }
+
+    void loadWorkItems();
+    return () => { cancelled = true; };
+  }, [supabase]);
+
   const metrics = useMemo(() => ({
     Active: items.filter(i => i.status === 'Active').length,
     Waiting: items.filter(i => i.status === 'Waiting').length,
@@ -31,10 +69,72 @@ export default function Home() {
     'Due Soon': items.filter(i => i.targetDate && i.status !== 'Done').length,
   }), [items]);
 
-  function moveItem(id: string, status: Status) {
+  async function moveItem(id: string, status: Status) {
     if (status === 'Done' && !confirm('Has the intended outcome actually been completed?')) return;
-    setItems(prev => prev.map(i => i.id === id ? { ...i, status } : i));
-    if (selected?.id === id) setSelected({ ...selected, status });
+
+    const previous = items.find(i => i.id === id);
+    if (!previous) return;
+
+    const changedAt = new Date().toISOString();
+    setItems(prev => prev.map(i => i.id === id ? { ...i, status, lastActivityDays: 0 } : i));
+    if (selected?.id === id) setSelected({ ...selected, status, lastActivityDays: 0 });
+
+    const { error } = await supabase
+      .from('work_items')
+      .update({
+        status,
+        last_activity_at: changedAt,
+        completed_at: status === 'Done' ? changedAt : null,
+        archived_at: status === 'Archived' ? changedAt : null,
+      })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Unable to update work item status', error);
+      setItems(prev => prev.map(i => i.id === id ? previous : i));
+      if (selected?.id === id) setSelected(previous);
+      alert('That status change could not be saved.');
+      return;
+    }
+
+    if (userId) {
+      await supabase.from('activity_history').insert({
+        user_id: userId,
+        work_item_id: id,
+        action: 'status_changed',
+        details: { from: previous.status, to: status },
+      });
+    }
+  }
+
+  async function saveCapturedItem(item: WorkItem) {
+    if (!userId) {
+      alert('Your Work OS session is not ready yet.');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('work_items')
+      .insert(workItemInsert(item, userId))
+      .select('*')
+      .single();
+
+    if (error || !data) {
+      console.error('Unable to save captured work item', error);
+      alert('That work item could not be saved.');
+      return;
+    }
+
+    const saved = workItemFromRow(data);
+    setItems(prev => [saved, ...prev]);
+    setCaptureOpen(false);
+
+    await supabase.from('activity_history').insert({
+      user_id: userId,
+      work_item_id: saved.id,
+      action: 'created',
+      details: { source: 'capture' },
+    });
   }
 
   function runAi(input: string) {
