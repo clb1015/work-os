@@ -23,10 +23,6 @@ type WorkItemRow = {
   metadata: Record<string, unknown> | null;
 };
 
-function stringArray(value: unknown): string[] | undefined {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : undefined;
-}
-
 export function workItemFromRow(row: WorkItemRow): WorkItem {
   const metadata = row.metadata ?? {};
   const activityAt = row.last_activity_at || row.updated_at;
@@ -50,9 +46,7 @@ export function workItemFromRow(row: WorkItemRow): WorkItem {
     whyNow: row.why_now ?? undefined,
     waitingOn: row.waiting_on ?? undefined,
     targetDate: row.target_date ?? undefined,
-    source: typeof metadata.source === 'string' ? metadata.source : row.source_url ?? undefined,
-    relatedItems: stringArray(metadata.relatedItems),
-    tags: stringArray(metadata.tags),
+    source: row.source_url ?? undefined,
     notes: row.notes ?? undefined,
     lastActivityDays,
     ideaStage: row.idea_stage ?? undefined,
