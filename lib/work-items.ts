@@ -46,7 +46,6 @@ export function workItemFromRow(row: WorkItemRow): WorkItem {
     whyNow: row.why_now ?? undefined,
     waitingOn: row.waiting_on ?? undefined,
     targetDate: row.target_date ?? undefined,
-    source: row.source_url ?? undefined,
     notes: row.notes ?? undefined,
     lastActivityDays,
     ideaStage: row.idea_stage ?? undefined,
