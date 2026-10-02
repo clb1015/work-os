@@ -7,6 +7,7 @@ export type IdeaStage = 'Spark' | 'Explore' | 'Promising' | 'Commit' | 'Park';
 
 export type WorkItem = {
   id: string;
+  legacyId?: string;
   title: string;
   type: WorkType;
   area: string;
