@@ -409,6 +409,7 @@ function Drawer({
     if(statusChanged) await onMove(item.id,draft.status);
     await onPatch(item.id,{
       title:draft.title,
+      status:draft.status,
       type:draft.type,
       area:draft.area,
       priority:draft.priority,
