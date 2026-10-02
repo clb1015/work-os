@@ -73,12 +73,7 @@ export function workItemInsert(item: WorkItem, userId: string) {
     idea_stage: item.ideaStage ?? null,
     purpose: item.purpose ?? null,
     last_activity_at: new Date().toISOString(),
-    metadata: {
-      ...(item.legacyId ? { legacyId: item.legacyId } : {}),
-      ...(item.source ? { source: item.source } : {}),
-      ...(item.relatedItems?.length ? { relatedItems: item.relatedItems } : {}),
-      ...(item.tags?.length ? { tags: item.tags } : {}),
-    },
+    metadata: item.legacyId ? { legacyId: item.legacyId } : {},
   };
 }
 
