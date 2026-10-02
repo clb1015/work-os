@@ -58,7 +58,7 @@ export default function Home() {
         <div className="side-section"><span>Areas</span>{areas.slice(0,6).map(a => <button key={a} className="area-link" onClick={() => {setAreaFilter(a);setView('Board')}}>{a}</button>)}</div>
       </aside>
       <main className="main">
-        <header className="topbar"><div><strong>{view}</strong></div><div className="top-actions"><button onClick={() => setView('Search')}>Search</button><button className="primary" onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
+        <header className="topbar"><div><strong>{view}</strong></div><div className="top-actions"><button onClick={() => setView('Search')}>Search</button><form action="/auth/signout" method="post"><button type="submit">Sign out</button></form><button className="primary" onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
         <section className="content">
           {view === 'Command Center' && <CommandCenter items={items} metrics={metrics} onOpen={setSelected} />}
           {view === 'Board' && <Board items={items} areaFilter={areaFilter} setAreaFilter={setAreaFilter} typeFilter={typeFilter} setTypeFilter={setTypeFilter} onOpen={setSelected} onMove={moveItem} />}
