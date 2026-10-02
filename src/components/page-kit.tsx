@@ -1,3 +1,0 @@
-import type { ReactNode } from "react";
-export function Page({ title, description, eyebrow, actions, children }: {title:string;description:string;eyebrow?:string;actions?:ReactNode;children:ReactNode}) { return <div className="page-wrap"><header className="page-header"><div>{eyebrow&&<div className="eyebrow">{eyebrow}</div>}<h1>{title}</h1><p>{description}</p></div>{actions}</header>{children}</div> }
-export function SectionTitle({ children, count }: {children:ReactNode;count?:number}) { return <h2 className="section-title"><span>{children}</span>{count!==undefined&&<span className="text-xs font-normal text-muted-foreground">{count}</span>}</h2> }

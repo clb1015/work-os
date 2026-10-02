@@ -1,0 +1,29 @@
+export type WorkType = 'Project' | 'Idea' | 'Workflow' | 'Dashboard' | 'Tool / App' | 'Resource' | 'Decision' | 'Issue' | 'Presentation';
+export type Status = 'Inbox' | 'Clarify' | 'Ready' | 'Active' | 'Waiting' | 'Review' | 'Done' | 'Archived';
+export type Priority = 'Now' | 'Next' | 'Later' | 'Someday';
+export type Impact = 'Low' | 'Medium' | 'High';
+export type Effort = 'Quick' | 'Moderate' | 'Significant';
+export type IdeaStage = 'Spark' | 'Explore' | 'Promising' | 'Commit' | 'Park';
+
+export type WorkItem = {
+  id: string;
+  title: string;
+  type: WorkType;
+  area: string;
+  status: Status;
+  priority: Priority;
+  impact: Impact;
+  effort: Effort;
+  outcome?: string;
+  nextAction?: string;
+  whyNow?: string;
+  waitingOn?: string;
+  targetDate?: string;
+  source?: string;
+  relatedItems?: string[];
+  tags?: string[];
+  notes?: string;
+  lastActivityDays?: number;
+  ideaStage?: IdeaStage;
+  purpose?: string;
+};

@@ -1,29 +1,42 @@
-# Welcome to your Lovable project
+# Work OS
 
-This project was built with [Lovable](https://lovable.dev).
+Phase 1 clickable shell for a personal/professional operating system that organizes projects, ideas, workflows, dashboards, tools, issues, decisions, and resources around one canonical Work Item model.
 
-## Build with Lovable
+## Stack
+- Next.js 16.3.8 (App Router)
+- React 19.2
+- TypeScript
+- Plain CSS for the prototype shell
+- Mock data only in Phase 1
 
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+## Run locally
+```bash
+npm install
 npm run dev
 ```
 
-## Built with
+## Phase 1 principles
+- One canonical Work Inventory
+- AI is a reasoning layer, not system state
+- Deterministic filters/search belong in application logic
+- Consequential AI changes are proposals that require confirmation
+- Search existing work before creating duplicates
+- Sources of truth stay in external systems (OneDrive, GitHub, district systems, etc.)
 
-- TanStack Start
-- TypeScript
-- React
-- Tailwind CSS
+## Planned Phase 2
+- Supabase PostgreSQL
+- one-owner authentication
+- RLS on exposed tables
+- work item CRUD
+- relationships
+- workflow definitions/runs
+- activity log
+- source-of-truth registry
+- AI proposal records
+
+## Planned Phase 3
+- OpenAI Responses API
+- GPT-6.1 Sol
+- structured outputs
+- narrow tool surface for search, retrieval, proposals, review, and related-work analysis
+- representative eval set before relying on agentic behavior
