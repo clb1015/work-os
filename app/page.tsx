@@ -84,7 +84,32 @@ export default function Home() {
 function CommandCenter({items,metrics,onOpen}:{items:WorkItem[];metrics:Record<string,number>;onOpen:(i:WorkItem)=>void}){
   const attention = items.filter(i => (i.status==='Waiting') || (!i.nextAction && ['Active','Ready'].includes(i.status)) || (i.lastActivityDays??0)>=8).slice(0,5);
   const active = items.filter(i=>i.status==='Active' && i.priority==='Now').slice(0,6);
-  return <><div className="hero"><p className="eyebrow">Friday, October 2</p><h1>Good morning, Chris</h1><p>Here is what needs your attention across the work you already have in motion.</p></div><div className="metrics">{Object.entries(metrics).map(([k,v])=><div className="metric" key={k}><strong>{v}</strong><span>{k}</span></div>)}</div><SectionTitle title="Needs Attention" subtitle="Stalled, blocked, or incomplete work"/><div className="attention-list">{attention.map(i=><button className="attention" key={i.id} onClick={()=>onOpen(i)}><div><strong>{i.title}</strong><span>{i.area} · {i.type}</span></div><div className="reason">{i.status==='Waiting'?`Waiting ${i.lastActivityDays ?? 0} days`:!i.nextAction?'Missing next action':`No activity in ${i.lastActivityDays} days`}</div></button>)}</div><SectionTitle title="Active Now" subtitle="Now-priority work that is currently actionable"/><div className="card-grid">{active.map(i=><WorkCard key={i.id} item={i} onOpen={onOpen}/>)}</div></>
+  const metricMeta = [
+    ['◇','Currently moving'],
+    ['◷','External dependencies'],
+    ['▤','Needs decision'],
+    ['↗','Needs definition'],
+    ['◫','Upcoming commitments']
+  ];
+  return <>
+    <div className="hero executive-hero">
+      <div><p className="eyebrow">Friday, October 2</p><h1>Command Center</h1><p>A focused view of what needs your attention across work already in motion.</p></div>
+      <div className="hero-chip">Executive view</div>
+    </div>
+    <div className="metrics">{Object.entries(metrics).map(([k,v],idx)=><div className={'metric metric-'+(idx+1)} key={k}><div className="metric-value"><strong>{v}</strong><span className="metric-icon">{metricMeta[idx][0]}</span></div><span>{k}</span><small>{metricMeta[idx][1]}</small></div>)}</div>
+    <SectionTitle title="Needs Attention" subtitle="Items that require your input, decision, or follow-up"/>
+    <div className="attention-panel">
+      <div className="attention-header"><span>Item</span><span>Type</span><span>Status</span><span>Next Action</span></div>
+      {attention.map(i=><button className="attention attention-row" key={i.id} onClick={()=>onOpen(i)}>
+        <div><strong>{i.title}</strong><span>{i.area}</span></div>
+        <span className="type-chip">{i.type}</span>
+        <span className={'status-chip status-'+i.status.toLowerCase()}>{i.status==='Waiting'?'Waiting':!i.nextAction?'Action Needed':'Review'}</span>
+        <div className="attention-next">{i.nextAction||'Set a concrete next action'}<small>{i.status==='Waiting'?'Waiting '+(i.lastActivityDays??0)+' days':(i.lastActivityDays??0)>=8?'No activity in '+i.lastActivityDays+' days':'Needs review'}</small></div>
+      </button>)}
+    </div>
+    <SectionTitle title="Active Now" subtitle="Now-priority work that is currently actionable"/>
+    <div className="card-grid active-grid">{active.map(i=><WorkCard key={i.id} item={i} onOpen={onOpen}/>)}</div>
+  </>
 }
 
 function Board({items,areaFilter,setAreaFilter,typeFilter,setTypeFilter,onOpen,onMove}:{items:WorkItem[];areaFilter:string;setAreaFilter:(s:string)=>void;typeFilter:string;setTypeFilter:(s:string)=>void;onOpen:(i:WorkItem)=>void;onMove:(id:string,s:Status)=>void}){
