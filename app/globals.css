@@ -218,3 +218,5 @@ button.primary,.primary{background:linear-gradient(180deg,#1aaea2,#138c85)!impor
   .registry-row{grid-template-columns:1fr 100px}
   .registry-row>:nth-child(2),.registry-row>:nth-child(4){display:none}
 }
+
+.data-state{margin:0 0 18px;border:1px solid var(--line);background:#0d1924;border-radius:8px;padding:11px 13px;color:#8fa0af;font-size:12px}.data-state.error{border-color:rgba(239,91,100,.32);background:rgba(239,91,100,.07);color:#ef8a91}
