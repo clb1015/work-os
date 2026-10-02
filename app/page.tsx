@@ -7,6 +7,9 @@ import { Status, WorkItem } from '@/lib/types';
 
 type View = 'Command Center' | 'Board' | 'Projects' | 'Ideas' | 'Workflows' | 'Dashboards & Tools' | 'Waiting' | 'Completed' | 'Search';
 const views: View[] = ['Command Center','Board','Projects','Ideas','Workflows','Dashboards & Tools','Waiting','Completed','Search'];
+const viewIcons: Record<View,string> = {
+  'Command Center':'⌂','Board':'▦','Projects':'□','Ideas':'◌','Workflows':'⌘','Dashboards & Tools':'▣','Waiting':'◷','Completed':'✓','Search':'⌕'
+};
 const statuses: Status[] = ['Inbox','Clarify','Ready','Active','Waiting','Review','Done'];
 
 export default function Home() {
@@ -53,12 +56,12 @@ export default function Home() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">W</span><div><strong>Work OS</strong><small>Personal operating layer</small></div></div>
-        <nav>{views.map(v => <button key={v} className={view===v?'nav active':'nav'} onClick={() => setView(v)}>{v}</button>)}</nav>
+        <div className="brand"><span className="brand-mark">W</span><div><strong>Work OS</strong><small>Executive workspace</small></div></div>
+        <nav>{views.map(v => <button key={v} className={view===v?'nav active':'nav'} onClick={() => setView(v)}><span className="nav-icon">{viewIcons[v]}</span><span>{v}</span></button>)}</nav>
         <div className="side-section"><span>Areas</span>{areas.slice(0,6).map(a => <button key={a} className="area-link" onClick={() => {setAreaFilter(a);setView('Board')}}>{a}</button>)}</div>
       </aside>
       <main className="main">
-        <header className="topbar"><div><strong>{view}</strong></div><div className="top-actions"><button onClick={() => setView('Search')}>Search</button><form action="/auth/signout" method="post"><button type="submit">Sign out</button></form><button className="primary" onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
+        <header className="topbar"><div className="topbar-title"><strong>Work OS</strong><span>{view}</span></div><div className="top-actions"><button className="ghost" onClick={() => setView('Search')}>⌕ Search</button><form action="/auth/signout" method="post"><button className="ghost" type="submit">Sign out</button></form><button className="primary" onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
         <section className="content">
           {view === 'Command Center' && <CommandCenter items={items} metrics={metrics} onOpen={setSelected} />}
           {view === 'Board' && <Board items={items} areaFilter={areaFilter} setAreaFilter={setAreaFilter} typeFilter={typeFilter} setTypeFilter={setTypeFilter} onOpen={setSelected} onMove={moveItem} />}
