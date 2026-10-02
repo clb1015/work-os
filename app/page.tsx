@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
 import { areas, bandCentralSteps } from '@/lib/mock-data';
 import { Status, WorkItem } from '@/lib/types';
 import { createClient } from '@/lib/supabase/client';
-import { workItemFromRow, workItemInsert } from '@/lib/work-items';
+import { workItemFromRow, workItemInsert, workItemPatch } from '@/lib/work-items';
 
 type View = 'Command Center' | 'Board' | 'Projects' | 'Ideas' | 'Workflows' | 'Dashboards & Tools' | 'Waiting' | 'Completed' | 'Search';
 const views: View[] = ['Command Center','Board','Projects','Ideas','Workflows','Dashboards & Tools','Waiting','Completed','Search'];
@@ -141,6 +140,39 @@ export default function Home() {
     });
   }
 
+  async function patchItem(id: string, patch: Partial<WorkItem>) {
+    const supabase = supabaseRef.current;
+    const previous = items.find(i => i.id === id);
+    if (!supabase || !previous) return;
+
+    const optimistic = { ...previous, ...patch, lastActivityDays: 0 };
+    setItems(prev => prev.map(i => i.id === id ? optimistic : i));
+    if (selected?.id === id) setSelected(optimistic);
+
+    const { error } = await supabase
+      .from('work_items')
+      .update(workItemPatch(patch))
+      .eq('id', id);
+
+    if (error) {
+      console.error('Unable to update work item', error);
+      setItems(prev => prev.map(i => i.id === id ? previous : i));
+      if (selected?.id === id) setSelected(previous);
+      alert('That change could not be saved.');
+      return;
+    }
+
+    if (userId) {
+      await supabase.from('activity_history').insert({
+        user_id: userId,
+        work_item_id: id,
+        action: 'updated',
+        details: { fields: Object.keys(patch) },
+      });
+    }
+  }
+
+
   function runAi(input: string) {
     setAiText(input);
     const q = input.toLowerCase();
@@ -170,7 +202,7 @@ export default function Home() {
           {view === 'Command Center' && <CommandCenter items={items} metrics={metrics} onOpen={setSelected} />}
           {view === 'Board' && <Board items={items} areaFilter={areaFilter} setAreaFilter={setAreaFilter} typeFilter={typeFilter} setTypeFilter={setTypeFilter} onOpen={setSelected} onMove={moveItem} />}
           {view === 'Projects' && <ListView title="Projects" items={items.filter(i=>i.type==='Project')} onOpen={setSelected} />}
-          {view === 'Ideas' && <Ideas items={items} setItems={setItems} onOpen={setSelected} />}
+          {view === 'Ideas' && <Ideas items={items} onPatch={patchItem} onOpen={setSelected} />}
           {view === 'Workflows' && <Workflows items={items} onOpen={setSelected} />}
           {view === 'Dashboards & Tools' && <Registry items={items} onOpen={setSelected} />}
           {view === 'Waiting' && <Waiting items={items} onOpen={setSelected} />}
@@ -223,7 +255,7 @@ function Board({items,areaFilter,setAreaFilter,typeFilter,setTypeFilter,onOpen,o
 
 function ListView({title,items,onOpen}:{title:string;items:WorkItem[];onOpen:(i:WorkItem)=>void}){return <><div className="page-heading"><div><h1>{title}</h1><p>{items.length} items</p></div></div><div className="list-table">{items.map(i=><button key={i.id} onClick={()=>onOpen(i)}><div><strong>{i.title}</strong><span>{i.area} · {i.type}</span></div><span className={`status status-${i.status.toLowerCase()}`}>{i.status}</span><span>{i.nextAction||'No next action'}</span></button>)}</div></>}
 
-function Ideas({items,setItems,onOpen}:{items:WorkItem[];setItems:Dispatch<SetStateAction<WorkItem[]>>;onOpen:(i:WorkItem)=>void}){const stages=['Spark','Explore','Promising','Park'];return <><div className="page-heading"><div><h1>Idea Incubator</h1><p>Interesting does not automatically mean committed.</p></div></div><div className="kanban ideas">{stages.map(stage=><div className="column" key={stage}><div className="column-head"><strong>{stage}</strong></div>{items.filter(i=>i.type==='Idea'&&(i.ideaStage||'Spark')===stage).map(i=><div className="kanban-card" key={i.id}><button className="card-open" onClick={()=>onOpen(i)}><strong>{i.title}</strong><small>{i.nextAction}</small></button><div className="mini-actions"><button onClick={()=>setItems(p=>p.map(x=>x.id===i.id?{...x,ideaStage:'Explore'}:x))}>Explore</button><button onClick={()=>setItems(p=>p.map(x=>x.id===i.id?{...x,type:'Project',status:'Clarify',ideaStage:'Commit'}:x))}>Commit</button><button onClick={()=>setItems(p=>p.map(x=>x.id===i.id?{...x,ideaStage:'Park'}:x))}>Park</button></div></div>)}</div>)}</div></>}
+function Ideas({items,onPatch,onOpen}:{items:WorkItem[];onPatch:(id:string,patch:Partial<WorkItem>)=>void;onOpen:(i:WorkItem)=>void}){const stages=['Spark','Explore','Promising','Park'];return <><div className="page-heading"><div><h1>Idea Incubator</h1><p>Interesting does not automatically mean committed.</p></div></div><div className="kanban ideas">{stages.map(stage=><div className="column" key={stage}><div className="column-head"><strong>{stage}</strong></div>{items.filter(i=>i.type==='Idea'&&(i.ideaStage||'Spark')===stage).map(i=><div className="kanban-card" key={i.id}><button className="card-open" onClick={()=>onOpen(i)}><strong>{i.title}</strong><small>{i.nextAction}</small></button><div className="mini-actions"><button onClick={()=>onPatch(i.id,{ideaStage:'Explore'})}>Explore</button><button onClick={()=>onPatch(i.id,{type:'Project',status:'Clarify',ideaStage:'Commit'})}>Commit</button><button onClick={()=>onPatch(i.id,{ideaStage:'Park'})}>Park</button></div></div>)}</div>)}</div></>}
 
 function Workflows({items,onOpen}:{items:WorkItem[];onOpen:(i:WorkItem)=>void}){return <><div className="page-heading"><div><h1>Workflows</h1><p>Reusable process definitions and their current runs.</p></div></div><div className="workflow-grid">{items.filter(i=>i.type==='Workflow').map(i=><div className="workflow" key={i.id}><div className="workflow-top"><div><span className="kicker">Workflow definition</span><h2>{i.title}</h2><p>{i.purpose||i.outcome}</p></div><button onClick={()=>onOpen(i)}>Details</button></div>{i.legacyId==='band-central'&&<><div className="run-label">Current run · 2026–27</div><div className="steps">{bandCentralSteps.map(([label,done])=><div key={label} className={done?'step done':'step'}><span>{done?'✓':'○'}</span>{label}</div>)}</div></>}</div>)}</div></>}
 
