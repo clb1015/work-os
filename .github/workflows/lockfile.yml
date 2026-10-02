@@ -18,7 +18,7 @@ jobs:
           node-version: 24
       - run: npm install --package-lock-only
       - run: |
-          if git diff --quiet -- package-lock.json; then
+          if [ -z "$(git status --porcelain package-lock.json)" ]; then
             echo "Lockfile already current"
             exit 0
           fi
