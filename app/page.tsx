@@ -552,17 +552,32 @@ function WorkCard({item,onOpen}:{item:WorkItem;onOpen:(i:WorkItem)=>void}){retur
 function SectionTitle({title,subtitle}:{title:string;subtitle:string}){return <div className="section-title"><div><h2>{title}</h2><p>{subtitle}</p></div></div>}
 
 function Drawer({
-  item,details,loadingDetails,onClose,onMove,onPatch
+  item,allItems,details,loadingDetails,onClose,onMove,onPatch,onAddTag,onRemoveTag,onAddRelationship,onRemoveRelationship,onAddSource,onSetPrimarySource,onRemoveSource
 }:{
   item:WorkItem;
+  allItems:WorkItem[];
   details:ItemDetails|null;
   loadingDetails:boolean;
   onClose:()=>void;
   onMove:(id:string,s:Status)=>Promise<void>;
   onPatch:(id:string,patch:Partial<WorkItem>)=>Promise<void>;
+  onAddTag:(workItemId:string,name:string)=>Promise<boolean>;
+  onRemoveTag:(workItemId:string,tagId:string,name:string)=>Promise<void>;
+  onAddRelationship:(workItemId:string,targetId:string,relationshipType:string)=>Promise<boolean>;
+  onRemoveRelationship:(workItemId:string,edgeId:string,otherId:string,otherTitle:string)=>Promise<void>;
+  onAddSource:(workItemId:string,name:string,sourceType:string,location:string)=>Promise<boolean>;
+  onSetPrimarySource:(workItemId:string,sourceId:string,sourceName:string)=>Promise<void>;
+  onRemoveSource:(workItemId:string,sourceId:string,sourceName:string,wasPrimary:boolean)=>Promise<void>;
 }){
   const [draft,setDraft]=useState<WorkItem>(item);
   const [saving,setSaving]=useState(false);
+  const [tagName,setTagName]=useState('');
+  const [relationshipTarget,setRelationshipTarget]=useState('');
+  const [relationshipType,setRelationshipType]=useState('related');
+  const [sourceName,setSourceName]=useState('');
+  const [sourceType,setSourceType]=useState('other');
+  const [sourceLocation,setSourceLocation]=useState('');
+  const [relationSaving,setRelationSaving]=useState(false);
 
   useEffect(()=>setDraft(item),[item]);
 
@@ -588,6 +603,28 @@ function Drawer({
       ideaStage:draft.ideaStage,
     });
     setSaving(false);
+  }
+
+  async function handleAddTag(){
+    setRelationSaving(true);
+    const ok=await onAddTag(item.id,tagName);
+    if(ok) setTagName('');
+    setRelationSaving(false);
+  }
+
+  async function handleAddRelationship(){
+    if(!relationshipTarget) return;
+    setRelationSaving(true);
+    const ok=await onAddRelationship(item.id,relationshipTarget,relationshipType);
+    if(ok) setRelationshipTarget('');
+    setRelationSaving(false);
+  }
+
+  async function handleAddSource(){
+    setRelationSaving(true);
+    const ok=await onAddSource(item.id,sourceName,sourceType,sourceLocation);
+    if(ok){setSourceName('');setSourceLocation('');setSourceType('other');}
+    setRelationSaving(false);
   }
 
   return <div className="drawer-backdrop" onClick={onClose}>
@@ -620,19 +657,41 @@ function Drawer({
       <EditableDetail label="Purpose" value={draft.purpose} onChange={value=>setDraft({...draft,purpose:value})} multiline/>
       <EditableDetail label="Notes" value={draft.notes} onChange={value=>setDraft({...draft,notes:value})} multiline/>
 
-      <div className="detail">
+      <div className="detail relational-editor">
         <span>Tags</span>
-        {loadingDetails?<p className="muted-line">Loading tags…</p>:details?.tags.length?<div className="tags">{details.tags.map(tag=><b key={tag}>{tag}</b>)}</div>:<p className="muted-line">No tags linked.</p>}
+        {loadingDetails?<p className="muted-line">Loading tags…</p>:details?.tags.length?<div className="tags editable-tags">{details.tags.map(tag=><b key={tag.id}>{tag.name}<button onClick={()=>onRemoveTag(item.id,tag.id,tag.name)} aria-label={'Remove '+tag.name}>×</button></b>)}</div>:<p className="muted-line">No tags linked.</p>}
+        <div className="relation-add-row">
+          <input value={tagName} onChange={e=>setTagName(e.target.value)} placeholder="Add a tag" onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void handleAddTag()}}}/>
+          <button onClick={handleAddTag} disabled={!tagName.trim()||relationSaving}>Add</button>
+        </div>
       </div>
 
-      <div className="detail">
+      <div className="detail relational-editor">
         <span>Relationships</span>
-        {loadingDetails?<p className="muted-line">Loading relationships…</p>:details?.relationships.length?<div className="relationship-list">{details.relationships.map(rel=><div key={rel.id}><strong>{rel.title}</strong><small>{rel.relationshipType.replaceAll('_',' ')}</small></div>)}</div>:<p className="muted-line">No relationships linked.</p>}
+        {loadingDetails?<p className="muted-line">Loading relationships…</p>:details?.relationships.length?<div className="relationship-list">{details.relationships.map(rel=><div key={rel.edgeId}><span><strong>{rel.title}</strong><small>{rel.relationshipType.replaceAll('_',' ')}</small></span><button className="icon-button" onClick={()=>onRemoveRelationship(item.id,rel.edgeId,rel.id,rel.title)}>×</button></div>)}</div>:<p className="muted-line">No relationships linked.</p>}
+        <div className="relation-add-grid">
+          <select value={relationshipTarget} onChange={e=>setRelationshipTarget(e.target.value)}>
+            <option value="">Select work item…</option>
+            {allItems.filter(candidate=>candidate.id!==item.id).sort((a,b)=>a.title.localeCompare(b.title)).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.title}</option>)}
+          </select>
+          <select value={relationshipType} onChange={e=>setRelationshipType(e.target.value)}>
+            {['related','blocks','blocked_by','parent','duplicates','derived_from'].map(type=><option key={type} value={type}>{type.replaceAll('_',' ')}</option>)}
+          </select>
+          <button onClick={handleAddRelationship} disabled={!relationshipTarget||relationSaving}>Link</button>
+        </div>
       </div>
 
-      <div className="detail">
+      <div className="detail relational-editor">
         <span>Sources of Truth</span>
-        {loadingDetails?<p className="muted-line">Loading sources…</p>:details?.sources.length?<div className="source-list">{details.sources.map(source=><div key={source.id}><strong>{source.name}{source.isPrimary?' · Primary':''}</strong><small>{source.sourceType}{source.location?' · '+source.location:''}</small></div>)}</div>:<p className="muted-line">No source linked.</p>}
+        {loadingDetails?<p className="muted-line">Loading sources…</p>:details?.sources.length?<div className="source-list">{details.sources.map(source=><div key={source.id}><span><strong>{source.name}{source.isPrimary?' · Primary':''}</strong><small>{source.sourceType}{source.location?' · '+source.location:''}</small></span><span className="source-actions">{!source.isPrimary&&<button onClick={()=>onSetPrimarySource(item.id,source.id,source.name)}>Make primary</button>}<button className="icon-button" onClick={()=>onRemoveSource(item.id,source.id,source.name,source.isPrimary)}>×</button></span></div>)}</div>:<p className="muted-line">No source linked.</p>}
+        <div className="source-add-grid">
+          <input value={sourceName} onChange={e=>setSourceName(e.target.value)} placeholder="Source name"/>
+          <select value={sourceType} onChange={e=>setSourceType(e.target.value)}>
+            {['github','onedrive','local','vercel','supabase','notion','url','other'].map(type=><option key={type} value={type}>{type}</option>)}
+          </select>
+          <input value={sourceLocation} onChange={e=>setSourceLocation(e.target.value)} placeholder="Path or URL (optional)"/>
+          <button onClick={handleAddSource} disabled={!sourceName.trim()||relationSaving}>Add source</button>
+        </div>
       </div>
 
       <div className="detail">
