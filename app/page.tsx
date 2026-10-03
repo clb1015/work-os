@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { areas, bandCentralSteps } from '@/lib/mock-data';
 import { Status, WorkItem } from '@/lib/types';
-import { createClient } from '@/lib/supabase/client';
 import { workItemFromRow, workItemInsert, workItemPatch } from '@/lib/work-items';
 
 type View = 'Command Center' | 'Board' | 'Projects' | 'Ideas' | 'Workflows' | 'Dashboards & Tools' | 'Waiting' | 'Completed' | 'Search';
@@ -29,7 +28,6 @@ export default function Home() {
   const [userId, setUserId] = useState('');
   const [loadingData, setLoadingData] = useState(true);
   const [dataError, setDataError] = useState('');
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const [view, setView] = useState<View>('Command Center');
   const [selected, setSelected] = useState<WorkItem | null>(null);
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -42,146 +40,109 @@ export default function Home() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailRefresh, setDetailRefresh] = useState(0);
 
+  async function apiPost<T=any>(body:Record<string,unknown>):Promise<T>{
+    const response=await fetch('/api/work-items',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body),
+    });
+    if(!response.ok){
+      const payload=await response.json().catch(()=>({}));
+      throw new Error(payload.error||'Work OS request failed');
+    }
+    return response.json();
+  }
+
   useEffect(() => {
-    let cancelled = false;
+    let cancelled=false;
 
-    async function loadWorkItems() {
-      const supabase = createClient();
-      supabaseRef.current = supabase;
-      const { data: userData, error: userError } = await supabase.auth.getUser();
-      if (cancelled) return;
-      if (userError || !userData.user) {
-        setDataError('Unable to verify your Work OS session.');
-        setLoadingData(false);
-        return;
-      }
+    async function loadWorkItems(){
+      try{
+        const response=await fetch('/api/work-items',{cache:'no-store'});
+        if(!response.ok) throw new Error('Unable to verify your Work OS session.');
+        const payload=await response.json();
+        if(cancelled) return;
 
-      setUserId(userData.user.id);
-      const { data, error } = await supabase
-        .from('work_items')
-        .select('*')
-        .order('updated_at', { ascending: false });
+        setUserId(payload.userId);
+        const baseItems=(payload.items??[]).map((row:any)=>workItemFromRow(row));
+        const titleById=new Map(baseItems.map((item:WorkItem)=>[item.id,item.title]));
+        const tagNameById=new Map((payload.tags??[]).map((tag:any)=>[tag.id,tag.name]));
+        const sourceNameById=new Map((payload.sources??[]).map((source:any)=>[source.id,source.name]));
+        const tagsByItem=new Map<string,string[]>();
+        const sourcesByItem=new Map<string,string>();
+        const relatedByItem=new Map<string,string[]>();
 
-      if (cancelled) return;
-      if (error) {
-        console.error('Unable to load work items', error);
-        setDataError('Unable to load your Work OS data.');
-      } else {
-        const baseItems = (data ?? []).map(row => workItemFromRow(row));
-        const [relationshipResult, tagLinkResult, tagResult, sourceLinkResult, sourceResult] = await Promise.all([
-          supabase.from('work_item_relationships').select('from_item_id,to_item_id,relationship_type'),
-          supabase.from('work_item_tags').select('work_item_id,tag_id'),
-          supabase.from('tags').select('id,name'),
-          supabase.from('work_item_sources').select('work_item_id,source_id,is_primary'),
-          supabase.from('sources_of_truth').select('id,name'),
-        ]);
-
-        const titleById = new Map(baseItems.map(item => [item.id, item.title]));
-        const tagNameById = new Map((tagResult.data ?? []).map(tag => [tag.id, tag.name]));
-        const sourceNameById = new Map((sourceResult.data ?? []).map(source => [source.id, source.name]));
-        const tagsByItem = new Map<string,string[]>();
-        const sourcesByItem = new Map<string,string>();
-        const relatedByItem = new Map<string,string[]>();
-
-        for (const link of tagLinkResult.data ?? []) {
-          const name = tagNameById.get(link.tag_id);
-          if (!name) continue;
-          tagsByItem.set(link.work_item_id, [...(tagsByItem.get(link.work_item_id) ?? []), name]);
+        for(const link of payload.tagLinks??[]){
+          const name=tagNameById.get(link.tag_id) as string|undefined;
+          if(name) tagsByItem.set(link.work_item_id,[...(tagsByItem.get(link.work_item_id)??[]),name]);
+        }
+        for(const link of payload.sourceLinks??[]){
+          const name=sourceNameById.get(link.source_id) as string|undefined;
+          if(name&&(link.is_primary||!sourcesByItem.has(link.work_item_id))) sourcesByItem.set(link.work_item_id,name);
+        }
+        for(const relationship of payload.relationships??[]){
+          const fromTitle=titleById.get(relationship.from_item_id);
+          const toTitle=titleById.get(relationship.to_item_id);
+          if(toTitle) relatedByItem.set(relationship.from_item_id,[...(relatedByItem.get(relationship.from_item_id)??[]),toTitle]);
+          if(fromTitle) relatedByItem.set(relationship.to_item_id,[...(relatedByItem.get(relationship.to_item_id)??[]),fromTitle]);
         }
 
-        for (const link of sourceLinkResult.data ?? []) {
-          const name = sourceNameById.get(link.source_id);
-          if (!name) continue;
-          if (link.is_primary || !sourcesByItem.has(link.work_item_id)) sourcesByItem.set(link.work_item_id, name);
-        }
-
-        for (const relationship of relationshipResult.data ?? []) {
-          const fromTitle = titleById.get(relationship.from_item_id);
-          const toTitle = titleById.get(relationship.to_item_id);
-          if (toTitle) relatedByItem.set(relationship.from_item_id, [...(relatedByItem.get(relationship.from_item_id) ?? []), toTitle]);
-          if (fromTitle) relatedByItem.set(relationship.to_item_id, [...(relatedByItem.get(relationship.to_item_id) ?? []), fromTitle]);
-        }
-
-        setItems(baseItems.map(item => ({
+        setItems(baseItems.map((item:WorkItem)=>({
           ...item,
-          tags: tagsByItem.get(item.id),
-          source: sourcesByItem.get(item.id),
-          relatedItems: relatedByItem.get(item.id),
+          tags:tagsByItem.get(item.id),
+          source:sourcesByItem.get(item.id),
+          relatedItems:relatedByItem.get(item.id),
         })));
+        setDataError('');
+      }catch(error){
+        if(!cancelled){
+          console.error(error);
+          setDataError('Unable to verify your Work OS session.');
+        }
+      }finally{
+        if(!cancelled) setLoadingData(false);
       }
-      setLoadingData(false);
     }
 
     void loadWorkItems();
-    return () => { cancelled = true; };
-  }, []);
+    return()=>{cancelled=true;};
+  },[]);
 
   useEffect(() => {
-    let cancelled = false;
-    const supabase = supabaseRef.current;
+    let cancelled=false;
 
-    async function loadDetails(itemId: string) {
-      if (!supabase) return;
+    async function loadDetails(itemId:string){
       setDetailLoading(true);
       setItemDetails(null);
-
-      const [relationshipResult, tagLinkResult, sourceLinkResult, activityResult] = await Promise.all([
-        supabase.from('work_item_relationships').select('id,from_item_id,to_item_id,relationship_type').or(`from_item_id.eq.${itemId},to_item_id.eq.${itemId}`),
-        supabase.from('work_item_tags').select('tag_id').eq('work_item_id', itemId),
-        supabase.from('work_item_sources').select('source_id,is_primary').eq('work_item_id', itemId),
-        supabase.from('activity_history').select('id,action,details,created_at').eq('work_item_id', itemId).order('created_at', { ascending: false }).limit(30),
-      ]);
-
-      if (cancelled) return;
-
-      const relationshipRows = relationshipResult.data ?? [];
-      const otherIds = [...new Set(relationshipRows.map(row => row.from_item_id === itemId ? row.to_item_id : row.from_item_id))];
-      const tagIds = (tagLinkResult.data ?? []).map(row => row.tag_id);
-      const sourceLinks = sourceLinkResult.data ?? [];
-      const sourceIds = sourceLinks.map(row => row.source_id);
-
-      const [relatedItemsResult, tagsResult, sourcesResult] = await Promise.all([
-        otherIds.length ? supabase.from('work_items').select('id,title').in('id', otherIds) : Promise.resolve({ data: [] as {id:string;title:string}[] }),
-        tagIds.length ? supabase.from('tags').select('id,name').in('id', tagIds) : Promise.resolve({ data: [] as {id:string;name:string}[] }),
-        sourceIds.length ? supabase.from('sources_of_truth').select('id,name,source_type,location').in('id', sourceIds) : Promise.resolve({ data: [] as {id:string;name:string;source_type:string;location:string|null}[] }),
-      ]);
-
-      if (cancelled) return;
-
-      const relatedById = new Map((relatedItemsResult.data ?? []).map(row => [row.id, row.title]));
-      const sourceLinkById = new Map(sourceLinks.map(row => [row.source_id, row.is_primary]));
-
-      setItemDetails({
-        relationships: relationshipRows.map(row => {
-          const otherId = row.from_item_id === itemId ? row.to_item_id : row.from_item_id;
-          return { edgeId: row.id, id: otherId, title: relatedById.get(otherId) ?? 'Related work', relationshipType: row.relationship_type };
-        }),
-        tags: (tagsResult.data ?? []).map(row => ({ id: row.id, name: row.name })),
-        sources: (sourcesResult.data ?? []).map(row => ({
-          id: row.id,
-          name: row.name,
-          sourceType: row.source_type,
-          location: row.location ?? undefined,
-          isPrimary: sourceLinkById.get(row.id) ?? false,
-        })),
-        activity: (activityResult.data ?? []).map(row => ({
-          id: row.id,
-          action: row.action,
-          details: (row.details ?? {}) as Record<string,unknown>,
-          createdAt: row.created_at,
-        })),
-      });
-      setDetailLoading(false);
+      try{
+        const payload=await apiPost<any>({op:'details',itemId});
+        if(cancelled) return;
+        const relatedById=new Map((payload.related??[]).map((row:any)=>[row.id,row.title]));
+        const sourceLinkById=new Map((payload.sourceLinks??[]).map((row:any)=>[row.source_id,row.is_primary]));
+        setItemDetails({
+          relationships:(payload.relationships??[]).map((row:any)=>{
+            const otherId=row.from_item_id===itemId?row.to_item_id:row.from_item_id;
+            return {edgeId:row.id,id:otherId,title:relatedById.get(otherId)??'Related work',relationshipType:row.relationship_type};
+          }),
+          tags:(payload.tags??[]).map((row:any)=>({id:row.id,name:row.name})),
+          sources:(payload.sources??[]).map((row:any)=>({
+            id:row.id,name:row.name,sourceType:row.source_type,location:row.location??undefined,isPrimary:sourceLinkById.get(row.id)??false,
+          })),
+          activity:(payload.activity??[]).map((row:any)=>({
+            id:row.id,action:row.action,details:row.details??{},createdAt:row.created_at,
+          })),
+        });
+      }catch(error){
+        if(!cancelled) console.error('Unable to load item details',error);
+      }finally{
+        if(!cancelled) setDetailLoading(false);
+      }
     }
 
-    if (selected?.id) void loadDetails(selected.id);
-    else {
-      setItemDetails(null);
-      setDetailLoading(false);
-    }
-
-    return () => { cancelled = true; };
-  }, [selected?.id, detailRefresh]);
+    if(selected?.id) void loadDetails(selected.id);
+    else {setItemDetails(null);setDetailLoading(false);}
+    return()=>{cancelled=true;};
+  },[selected?.id,detailRefresh]);
 
   const metrics = useMemo(() => ({
     Active: items.filter(i => i.status === 'Active').length,
@@ -191,254 +152,148 @@ export default function Home() {
     'Due Soon': items.filter(i => i.targetDate && i.status !== 'Done').length,
   }), [items]);
 
-  async function moveItem(id: string, status: Status) {
-    if (status === 'Done' && !confirm('Has the intended outcome actually been completed?')) return;
+  async function moveItem(id:string,status:Status){
+    if(status==='Done'&&!confirm('Has the intended outcome actually been completed?')) return;
+    const previous=items.find(i=>i.id===id);
+    if(!previous) return;
+    const changedAt=new Date().toISOString();
+    const optimistic={...previous,status,lastActivityDays:0};
+    setItems(prev=>prev.map(i=>i.id===id?optimistic:i));
+    if(selected?.id===id) setSelected(optimistic);
 
-    const previous = items.find(i => i.id === id);
-    const supabase = supabaseRef.current;
-    if (!previous || !supabase) return;
-
-    const changedAt = new Date().toISOString();
-    setItems(prev => prev.map(i => i.id === id ? { ...i, status, lastActivityDays: 0 } : i));
-    if (selected?.id === id) setSelected({ ...selected, status, lastActivityDays: 0 });
-
-    const { error } = await supabase
-      .from('work_items')
-      .update({
-        status,
-        last_activity_at: changedAt,
-        completed_at: status === 'Done' ? changedAt : null,
-        archived_at: status === 'Archived' ? changedAt : null,
-      })
-      .eq('id', id);
-
-    if (error) {
-      console.error('Unable to update work item status', error);
-      setItems(prev => prev.map(i => i.id === id ? previous : i));
-      if (selected?.id === id) setSelected(previous);
+    try{
+      await apiPost({
+        op:'updateItem',
+        itemId:id,
+        patch:{
+          status,
+          last_activity_at:changedAt,
+          completed_at:status==='Done'?changedAt:null,
+          archived_at:status==='Archived'?changedAt:null,
+        },
+        activity:{action:'status_changed',details:{from:previous.status,to:status}},
+      });
+      setDetailRefresh(v=>v+1);
+    }catch(error){
+      console.error(error);
+      setItems(prev=>prev.map(i=>i.id===id?previous:i));
+      if(selected?.id===id) setSelected(previous);
       alert('That status change could not be saved.');
-      return;
     }
-
-    if (userId) {
-      await supabase.from('activity_history').insert({
-        user_id: userId,
-        work_item_id: id,
-        action: 'status_changed',
-        details: { from: previous.status, to: status },
-      });
-    }
-    setDetailRefresh(v=>v+1);
   }
 
-  async function saveCapturedItem(item: WorkItem) {
-    const supabase = supabaseRef.current;
-    if (!userId || !supabase) {
-      alert('Your Work OS session is not ready yet.');
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from('work_items')
-      .insert(workItemInsert(item, userId))
-      .select('*')
-      .single();
-
-    if (error || !data) {
-      console.error('Unable to save captured work item', error);
+  async function saveCapturedItem(item:WorkItem){
+    try{
+      const payload=await apiPost<any>({op:'createItem',row:workItemInsert(item,userId)});
+      const saved=workItemFromRow(payload.item);
+      setItems(prev=>[saved,...prev]);
+      setCaptureOpen(false);
+    }catch(error){
+      console.error(error);
       alert('That work item could not be saved.');
-      return;
     }
-
-    const saved = workItemFromRow(data);
-    setItems(prev => [saved, ...prev]);
-    setCaptureOpen(false);
-
-    await supabase.from('activity_history').insert({
-      user_id: userId,
-      work_item_id: saved.id,
-      action: 'created',
-      details: { source: 'capture' },
-    });
   }
 
-  async function patchItem(id: string, patch: Partial<WorkItem>) {
-    const supabase = supabaseRef.current;
-    const previous = items.find(i => i.id === id);
-    if (!supabase || !previous) return;
-
-    const optimistic = { ...previous, ...patch, lastActivityDays: 0 };
-    setItems(prev => prev.map(i => i.id === id ? optimistic : i));
-    if (selected?.id === id) setSelected(optimistic);
-
-    const { error } = await supabase
-      .from('work_items')
-      .update(workItemPatch(patch))
-      .eq('id', id);
-
-    if (error) {
-      console.error('Unable to update work item', error);
-      setItems(prev => prev.map(i => i.id === id ? previous : i));
-      if (selected?.id === id) setSelected(previous);
-      alert('That change could not be saved.');
-      return;
-    }
-
-    if (userId) {
-      await supabase.from('activity_history').insert({
-        user_id: userId,
-        work_item_id: id,
-        action: 'updated',
-        details: { fields: Object.keys(patch) },
+  async function patchItem(id:string,patch:Partial<WorkItem>){
+    const previous=items.find(i=>i.id===id);
+    if(!previous) return;
+    const optimistic={...previous,...patch,lastActivityDays:0};
+    setItems(prev=>prev.map(i=>i.id===id?optimistic:i));
+    if(selected?.id===id) setSelected(optimistic);
+    try{
+      await apiPost({
+        op:'updateItem',
+        itemId:id,
+        patch:workItemPatch(patch),
+        activity:{action:'updated',details:{fields:Object.keys(patch)}},
       });
+      setDetailRefresh(v=>v+1);
+    }catch(error){
+      console.error(error);
+      setItems(prev=>prev.map(i=>i.id===id?previous:i));
+      if(selected?.id===id) setSelected(previous);
+      alert('That change could not be saved.');
     }
-    setDetailRefresh(v=>v+1);
   }
 
-
-  async function logRelationalActivity(workItemId:string, action:string, details:Record<string,unknown>) {
-    const supabase = supabaseRef.current;
-    if (!supabase || !userId) return;
-    await supabase.from('activity_history').insert({
-      user_id:userId,
-      work_item_id:workItemId,
-      action,
-      details,
-    });
-  }
-
-  async function addTag(workItemId:string, rawName:string) {
-    const supabase=supabaseRef.current;
+  async function addTag(workItemId:string,rawName:string){
     const name=rawName.trim();
-    if(!supabase||!userId||!name) return false;
-
-    let tagId:string|undefined;
-    const { data:existing } = await supabase.from('tags').select('id,name').eq('name',name).maybeSingle();
-    if(existing?.id) tagId=existing.id;
-    else {
-      const { data:created,error:createError }=await supabase.from('tags').insert({user_id:userId,name}).select('id,name').single();
-      if(createError||!created){ console.error('Unable to create tag',createError); alert('That tag could not be created.'); return false; }
-      tagId=created.id;
-    }
-
-    const { error }=await supabase.from('work_item_tags').insert({work_item_id:workItemId,tag_id:tagId,user_id:userId});
-    if(error && error.code!=='23505'){ console.error('Unable to link tag',error); alert('That tag could not be linked.'); return false; }
-
-    setItems(prev=>prev.map(item=>item.id===workItemId?{...item,tags:[...new Set([...(item.tags??[]),name])]}:item));
-    await logRelationalActivity(workItemId,'tag_added',{tag:name});
-    setDetailRefresh(v=>v+1);
-    return true;
+    if(!name) return false;
+    try{
+      await apiPost({op:'addTag',itemId:workItemId,name});
+      setItems(prev=>prev.map(item=>item.id===workItemId?{...item,tags:[...new Set([...(item.tags??[]),name])]}:item));
+      setDetailRefresh(v=>v+1);
+      return true;
+    }catch(error){console.error(error);alert('That tag could not be linked.');return false;}
   }
 
-  async function removeTag(workItemId:string, tagId:string, name:string) {
-    const supabase=supabaseRef.current;
-    if(!supabase) return;
-    const { error }=await supabase.from('work_item_tags').delete().eq('work_item_id',workItemId).eq('tag_id',tagId);
-    if(error){ console.error('Unable to remove tag',error); alert('That tag could not be removed.'); return; }
-    setItems(prev=>prev.map(item=>item.id===workItemId?{...item,tags:(item.tags??[]).filter(tag=>tag!==name)}:item));
-    await logRelationalActivity(workItemId,'tag_removed',{tag:name});
-    setDetailRefresh(v=>v+1);
+  async function removeTag(workItemId:string,tagId:string,name:string){
+    try{
+      await apiPost({op:'removeTag',itemId:workItemId,tagId,name});
+      setItems(prev=>prev.map(item=>item.id===workItemId?{...item,tags:(item.tags??[]).filter(tag=>tag!==name)}:item));
+      setDetailRefresh(v=>v+1);
+    }catch(error){console.error(error);alert('That tag could not be removed.');}
   }
 
-  async function addRelationship(workItemId:string, targetId:string, relationshipType:string) {
-    const supabase=supabaseRef.current;
-    if(!supabase||!userId||!targetId||targetId===workItemId) return false;
+  async function addRelationship(workItemId:string,targetId:string,relationshipType:string){
+    if(!targetId||targetId===workItemId) return false;
     const target=items.find(item=>item.id===targetId);
-    const { error }=await supabase.from('work_item_relationships').insert({
-      user_id:userId,
-      from_item_id:workItemId,
-      to_item_id:targetId,
-      relationship_type:relationshipType,
-    });
-    if(error && error.code!=='23505'){ console.error('Unable to add relationship',error); alert('That relationship could not be added.'); return false; }
-    if(target){
+    try{
+      await apiPost({op:'addRelationship',itemId:workItemId,targetId,relationshipType});
+      if(target){
+        const currentTitle=items.find(item=>item.id===workItemId)?.title??'Related work';
+        setItems(prev=>prev.map(item=>{
+          if(item.id===workItemId) return {...item,relatedItems:[...new Set([...(item.relatedItems??[]),target.title])]};
+          if(item.id===targetId) return {...item,relatedItems:[...new Set([...(item.relatedItems??[]),currentTitle])]};
+          return item;
+        }));
+      }
+      setDetailRefresh(v=>v+1);
+      return true;
+    }catch(error){console.error(error);alert('That relationship could not be added.');return false;}
+  }
+
+  async function removeRelationship(workItemId:string,edgeId:string,otherId:string,otherTitle:string){
+    try{
+      await apiPost({op:'removeRelationship',itemId:workItemId,edgeId,otherId});
+      const currentTitle=items.find(item=>item.id===workItemId)?.title;
       setItems(prev=>prev.map(item=>{
-        if(item.id===workItemId) return {...item,relatedItems:[...new Set([...(item.relatedItems??[]),target.title])]};
-        if(item.id===targetId) return {...item,relatedItems:[...new Set([...(item.relatedItems??[]),items.find(x=>x.id===workItemId)?.title??'Related work'])]};
+        if(item.id===workItemId) return {...item,relatedItems:(item.relatedItems??[]).filter(title=>title!==otherTitle)};
+        if(item.id===otherId&&currentTitle) return {...item,relatedItems:(item.relatedItems??[]).filter(title=>title!==currentTitle)};
         return item;
       }));
-    }
-    await logRelationalActivity(workItemId,'relationship_added',{targetId,targetTitle:target?.title??'',relationshipType});
-    setDetailRefresh(v=>v+1);
-    return true;
+      setDetailRefresh(v=>v+1);
+    }catch(error){console.error(error);alert('That relationship could not be removed.');}
   }
 
-  async function removeRelationship(workItemId:string, edgeId:string, otherId:string, otherTitle:string) {
-    const supabase=supabaseRef.current;
-    if(!supabase) return;
-    const { error }=await supabase.from('work_item_relationships').delete().eq('id',edgeId);
-    if(error){ console.error('Unable to remove relationship',error); alert('That relationship could not be removed.'); return; }
-    const currentTitle=items.find(item=>item.id===workItemId)?.title;
-    setItems(prev=>prev.map(item=>{
-      if(item.id===workItemId) return {...item,relatedItems:(item.relatedItems??[]).filter(title=>title!==otherTitle)};
-      if(item.id===otherId&&currentTitle) return {...item,relatedItems:(item.relatedItems??[]).filter(title=>title!==currentTitle)};
-      return item;
-    }));
-    await logRelationalActivity(workItemId,'relationship_removed',{targetId:otherId,targetTitle:otherTitle});
-    setDetailRefresh(v=>v+1);
-  }
-
-  async function addSource(workItemId:string, rawName:string, sourceType:string, rawLocation:string) {
-    const supabase=supabaseRef.current;
+  async function addSource(workItemId:string,rawName:string,sourceType:string,rawLocation:string){
     const name=rawName.trim();
-    const location=rawLocation.trim();
-    if(!supabase||!userId||!name) return false;
-
-    let sourceId:string|undefined;
-    const { data:existing }=await supabase.from('sources_of_truth').select('id,name,source_type,location').eq('name',name).maybeSingle();
-    if(existing?.id) sourceId=existing.id;
-    else {
-      const { data:created,error:createError }=await supabase.from('sources_of_truth').insert({
-        user_id:userId,name,source_type:sourceType,location:location||null
-      }).select('id,name').single();
-      if(createError||!created){ console.error('Unable to create source',createError); alert('That source could not be created.'); return false; }
-      sourceId=created.id;
-    }
-
-    const currentlyHasPrimary=Boolean(itemDetails?.sources.some(source=>source.isPrimary));
-    const { error }=await supabase.from('work_item_sources').insert({
-      work_item_id:workItemId,
-      source_id:sourceId,
-      user_id:userId,
-      is_primary:!currentlyHasPrimary,
-    });
-    if(error && error.code!=='23505'){ console.error('Unable to link source',error); alert('That source could not be linked.'); return false; }
-
-    if(!currentlyHasPrimary) setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:name}:item));
-    await logRelationalActivity(workItemId,'source_added',{source:name,sourceType});
-    setDetailRefresh(v=>v+1);
-    return true;
+    if(!name) return false;
+    try{
+      const payload=await apiPost<any>({op:'addSource',itemId:workItemId,name,sourceType,location:rawLocation.trim()});
+      if(payload.isPrimary) setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:name}:item));
+      setDetailRefresh(v=>v+1);
+      return true;
+    }catch(error){console.error(error);alert('That source could not be linked.');return false;}
   }
 
-  async function setPrimarySource(workItemId:string, sourceId:string, sourceName:string) {
-    const supabase=supabaseRef.current;
-    if(!supabase) return;
-    const { error:clearError }=await supabase.from('work_item_sources').update({is_primary:false}).eq('work_item_id',workItemId);
-    if(clearError){ console.error('Unable to clear primary source',clearError); alert('The primary source could not be changed.'); return; }
-    const { error }=await supabase.from('work_item_sources').update({is_primary:true}).eq('work_item_id',workItemId).eq('source_id',sourceId);
-    if(error){ console.error('Unable to set primary source',error); alert('The primary source could not be changed.'); return; }
-    setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:sourceName}:item));
-    await logRelationalActivity(workItemId,'primary_source_changed',{source:sourceName});
-    setDetailRefresh(v=>v+1);
+  async function setPrimarySource(workItemId:string,sourceId:string,sourceName:string){
+    try{
+      await apiPost({op:'setPrimarySource',itemId:workItemId,sourceId,sourceName});
+      setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:sourceName}:item));
+      setDetailRefresh(v=>v+1);
+    }catch(error){console.error(error);alert('The primary source could not be changed.');}
   }
 
-  async function removeSource(workItemId:string, sourceId:string, sourceName:string, wasPrimary:boolean) {
-    const supabase=supabaseRef.current;
-    if(!supabase) return;
-    const { error }=await supabase.from('work_item_sources').delete().eq('work_item_id',workItemId).eq('source_id',sourceId);
-    if(error){ console.error('Unable to remove source',error); alert('That source could not be removed.'); return; }
-
-    let replacement:string|undefined;
-    if(wasPrimary){
-      const remaining=(itemDetails?.sources??[]).filter(source=>source.id!==sourceId);
-      if(remaining[0]){
-        await supabase.from('work_item_sources').update({is_primary:true}).eq('work_item_id',workItemId).eq('source_id',remaining[0].id);
-        replacement=remaining[0].name;
-      }
-      setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:replacement}:item));
-    }
-    await logRelationalActivity(workItemId,'source_removed',{source:sourceName});
-    setDetailRefresh(v=>v+1);
+  async function removeSource(workItemId:string,sourceId:string,sourceName:string,wasPrimary:boolean){
+    try{
+      const payload=await apiPost<any>({op:'removeSource',itemId:workItemId,sourceId,sourceName,wasPrimary});
+      const replacement=wasPrimary&&payload.replacementSourceId
+        ?itemDetails?.sources.find(source=>source.id===payload.replacementSourceId)?.name
+        :undefined;
+      if(wasPrimary) setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:replacement}:item));
+      setDetailRefresh(v=>v+1);
+    }catch(error){console.error(error);alert('That source could not be removed.');}
   }
 
   function runAi(input: string) {
