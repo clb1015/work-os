@@ -81,8 +81,8 @@ export default function Home() {
           if(name&&(link.is_primary||!sourcesByItem.has(link.work_item_id))) sourcesByItem.set(link.work_item_id,name);
         }
         for(const relationship of payload.relationships??[]){
-          const fromTitle=titleById.get(relationship.from_item_id);
-          const toTitle=titleById.get(relationship.to_item_id);
+          const fromTitle=titleById.get(relationship.from_item_id) as string|undefined;
+          const toTitle=titleById.get(relationship.to_item_id) as string|undefined;
           if(toTitle) relatedByItem.set(relationship.from_item_id,[...(relatedByItem.get(relationship.from_item_id)??[]),toTitle]);
           if(fromTitle) relatedByItem.set(relationship.to_item_id,[...(relatedByItem.get(relationship.to_item_id)??[]),fromTitle]);
         }
