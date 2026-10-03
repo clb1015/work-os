@@ -18,8 +18,8 @@ const efforts: WorkItem['effort'][] = ['Quick','Moderate','Significant'];
 const workTypes: WorkItem['type'][] = ['Project','Idea','Workflow','Dashboard','Tool / App','Resource','Decision','Issue','Presentation'];
 
 type ItemDetails = {
-  relationships: { id:string; title:string; relationshipType:string }[];
-  tags: string[];
+  relationships: { edgeId:string; id:string; title:string; relationshipType:string }[];
+  tags: { id:string; name:string }[];
   sources: { id:string; name:string; sourceType:string; location?:string; isPrimary:boolean }[];
   activity: { id:string; action:string; details:Record<string,unknown>; createdAt:string }[];
 };
@@ -154,9 +154,9 @@ export default function Home() {
       setItemDetails({
         relationships: relationshipRows.map(row => {
           const otherId = row.from_item_id === itemId ? row.to_item_id : row.from_item_id;
-          return { id: otherId, title: relatedById.get(otherId) ?? 'Related work', relationshipType: row.relationship_type };
+          return { edgeId: row.id, id: otherId, title: relatedById.get(otherId) ?? 'Related work', relationshipType: row.relationship_type };
         }),
-        tags: (tagsResult.data ?? []).map(row => row.name),
+        tags: (tagsResult.data ?? []).map(row => ({ id: row.id, name: row.name })),
         sources: (sourcesResult.data ?? []).map(row => ({
           id: row.id,
           name: row.name,
@@ -296,6 +296,151 @@ export default function Home() {
   }
 
 
+  async function logRelationalActivity(workItemId:string, action:string, details:Record<string,unknown>) {
+    const supabase = supabaseRef.current;
+    if (!supabase || !userId) return;
+    await supabase.from('activity_history').insert({
+      user_id:userId,
+      work_item_id:workItemId,
+      action,
+      details,
+    });
+  }
+
+  async function addTag(workItemId:string, rawName:string) {
+    const supabase=supabaseRef.current;
+    const name=rawName.trim();
+    if(!supabase||!userId||!name) return false;
+
+    let tagId:string|undefined;
+    const { data:existing } = await supabase.from('tags').select('id,name').eq('name',name).maybeSingle();
+    if(existing?.id) tagId=existing.id;
+    else {
+      const { data:created,error:createError }=await supabase.from('tags').insert({user_id:userId,name}).select('id,name').single();
+      if(createError||!created){ console.error('Unable to create tag',createError); alert('That tag could not be created.'); return false; }
+      tagId=created.id;
+    }
+
+    const { error }=await supabase.from('work_item_tags').insert({work_item_id:workItemId,tag_id:tagId,user_id:userId});
+    if(error && error.code!=='23505'){ console.error('Unable to link tag',error); alert('That tag could not be linked.'); return false; }
+
+    setItems(prev=>prev.map(item=>item.id===workItemId?{...item,tags:[...new Set([...(item.tags??[]),name])]}:item));
+    await logRelationalActivity(workItemId,'tag_added',{tag:name});
+    setDetailRefresh(v=>v+1);
+    return true;
+  }
+
+  async function removeTag(workItemId:string, tagId:string, name:string) {
+    const supabase=supabaseRef.current;
+    if(!supabase) return;
+    const { error }=await supabase.from('work_item_tags').delete().eq('work_item_id',workItemId).eq('tag_id',tagId);
+    if(error){ console.error('Unable to remove tag',error); alert('That tag could not be removed.'); return; }
+    setItems(prev=>prev.map(item=>item.id===workItemId?{...item,tags:(item.tags??[]).filter(tag=>tag!==name)}:item));
+    await logRelationalActivity(workItemId,'tag_removed',{tag:name});
+    setDetailRefresh(v=>v+1);
+  }
+
+  async function addRelationship(workItemId:string, targetId:string, relationshipType:string) {
+    const supabase=supabaseRef.current;
+    if(!supabase||!userId||!targetId||targetId===workItemId) return false;
+    const target=items.find(item=>item.id===targetId);
+    const { error }=await supabase.from('work_item_relationships').insert({
+      user_id:userId,
+      from_item_id:workItemId,
+      to_item_id:targetId,
+      relationship_type:relationshipType,
+    });
+    if(error && error.code!=='23505'){ console.error('Unable to add relationship',error); alert('That relationship could not be added.'); return false; }
+    if(target){
+      setItems(prev=>prev.map(item=>{
+        if(item.id===workItemId) return {...item,relatedItems:[...new Set([...(item.relatedItems??[]),target.title])]};
+        if(item.id===targetId) return {...item,relatedItems:[...new Set([...(item.relatedItems??[]),items.find(x=>x.id===workItemId)?.title??'Related work'])]};
+        return item;
+      }));
+    }
+    await logRelationalActivity(workItemId,'relationship_added',{targetId,targetTitle:target?.title??'',relationshipType});
+    setDetailRefresh(v=>v+1);
+    return true;
+  }
+
+  async function removeRelationship(workItemId:string, edgeId:string, otherId:string, otherTitle:string) {
+    const supabase=supabaseRef.current;
+    if(!supabase) return;
+    const { error }=await supabase.from('work_item_relationships').delete().eq('id',edgeId);
+    if(error){ console.error('Unable to remove relationship',error); alert('That relationship could not be removed.'); return; }
+    const currentTitle=items.find(item=>item.id===workItemId)?.title;
+    setItems(prev=>prev.map(item=>{
+      if(item.id===workItemId) return {...item,relatedItems:(item.relatedItems??[]).filter(title=>title!==otherTitle)};
+      if(item.id===otherId&&currentTitle) return {...item,relatedItems:(item.relatedItems??[]).filter(title=>title!==currentTitle)};
+      return item;
+    }));
+    await logRelationalActivity(workItemId,'relationship_removed',{targetId:otherId,targetTitle:otherTitle});
+    setDetailRefresh(v=>v+1);
+  }
+
+  async function addSource(workItemId:string, rawName:string, sourceType:string, rawLocation:string) {
+    const supabase=supabaseRef.current;
+    const name=rawName.trim();
+    const location=rawLocation.trim();
+    if(!supabase||!userId||!name) return false;
+
+    let sourceId:string|undefined;
+    const { data:existing }=await supabase.from('sources_of_truth').select('id,name,source_type,location').eq('name',name).maybeSingle();
+    if(existing?.id) sourceId=existing.id;
+    else {
+      const { data:created,error:createError }=await supabase.from('sources_of_truth').insert({
+        user_id:userId,name,source_type:sourceType,location:location||null
+      }).select('id,name').single();
+      if(createError||!created){ console.error('Unable to create source',createError); alert('That source could not be created.'); return false; }
+      sourceId=created.id;
+    }
+
+    const currentlyHasPrimary=Boolean(itemDetails?.sources.some(source=>source.isPrimary));
+    const { error }=await supabase.from('work_item_sources').insert({
+      work_item_id:workItemId,
+      source_id:sourceId,
+      user_id:userId,
+      is_primary:!currentlyHasPrimary,
+    });
+    if(error && error.code!=='23505'){ console.error('Unable to link source',error); alert('That source could not be linked.'); return false; }
+
+    if(!currentlyHasPrimary) setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:name}:item));
+    await logRelationalActivity(workItemId,'source_added',{source:name,sourceType});
+    setDetailRefresh(v=>v+1);
+    return true;
+  }
+
+  async function setPrimarySource(workItemId:string, sourceId:string, sourceName:string) {
+    const supabase=supabaseRef.current;
+    if(!supabase) return;
+    const { error:clearError }=await supabase.from('work_item_sources').update({is_primary:false}).eq('work_item_id',workItemId);
+    if(clearError){ console.error('Unable to clear primary source',clearError); alert('The primary source could not be changed.'); return; }
+    const { error }=await supabase.from('work_item_sources').update({is_primary:true}).eq('work_item_id',workItemId).eq('source_id',sourceId);
+    if(error){ console.error('Unable to set primary source',error); alert('The primary source could not be changed.'); return; }
+    setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:sourceName}:item));
+    await logRelationalActivity(workItemId,'primary_source_changed',{source:sourceName});
+    setDetailRefresh(v=>v+1);
+  }
+
+  async function removeSource(workItemId:string, sourceId:string, sourceName:string, wasPrimary:boolean) {
+    const supabase=supabaseRef.current;
+    if(!supabase) return;
+    const { error }=await supabase.from('work_item_sources').delete().eq('work_item_id',workItemId).eq('source_id',sourceId);
+    if(error){ console.error('Unable to remove source',error); alert('That source could not be removed.'); return; }
+
+    let replacement:string|undefined;
+    if(wasPrimary){
+      const remaining=(itemDetails?.sources??[]).filter(source=>source.id!==sourceId);
+      if(remaining[0]){
+        await supabase.from('work_item_sources').update({is_primary:true}).eq('work_item_id',workItemId).eq('source_id',remaining[0].id);
+        replacement=remaining[0].name;
+      }
+      setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:replacement}:item));
+    }
+    await logRelationalActivity(workItemId,'source_removed',{source:sourceName});
+    setDetailRefresh(v=>v+1);
+  }
+
   function runAi(input: string) {
     setAiText(input);
     const q = input.toLowerCase();
@@ -334,7 +479,22 @@ export default function Home() {
         </section>
         <div className="ai-bar"><input value={aiText} onChange={e=>setAiText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')runAi(aiText)}} placeholder="Ask Work OS... What's worth working on today?"/><button onClick={()=>runAi(aiText)}>Ask</button>{aiResponse && <div className="ai-popover"><strong>Mock GPT-6.1 Sol</strong><p>{aiResponse}</p><button onClick={()=>setAiResponse('')}>Close</button></div>}</div>
       </main>
-      {selected && <Drawer item={selected} details={itemDetails} loadingDetails={detailLoading} onClose={()=>setSelected(null)} onMove={moveItem} onPatch={patchItem} />}
+      {selected && <Drawer
+        item={selected}
+        allItems={items}
+        details={itemDetails}
+        loadingDetails={detailLoading}
+        onClose={()=>setSelected(null)}
+        onMove={moveItem}
+        onPatch={patchItem}
+        onAddTag={addTag}
+        onRemoveTag={removeTag}
+        onAddRelationship={addRelationship}
+        onRemoveRelationship={removeRelationship}
+        onAddSource={addSource}
+        onSetPrimarySource={setPrimarySource}
+        onRemoveSource={removeSource}
+      />}
       {captureOpen && <Capture items={items} onClose={()=>setCaptureOpen(false)} onSave={saveCapturedItem} onOpenExisting={(id)=>{const found=items.find(i=>i.legacyId===id||i.id===id); if(found){setSelected(found);setCaptureOpen(false)}}} />}
     </div>
   );
