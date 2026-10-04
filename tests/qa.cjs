@@ -37,20 +37,22 @@ test('Incoming directed relationships are rendered from the selected item perspe
 });
 function database(seed={},failure){
   const tables={work_items:[item()],work_item_tags:[],work_item_sources:[],work_item_relationships:[],tags:[],sources_of_truth:[],activity_history:[],...structuredClone(seed)};
+  let sequence=10;
+  const generatedId=()=>String(sequence++).padStart(8,'0')+'-0000-4000-8000-000000000000';
   const client={from(table){
     let operation='select',payload,filters=[],one=false,optional=false,project='*',opts={};
     const q={select(columns='*'){project=columns;return q;},eq(key,value){filters.push(r=>r[key]===value);return q;},in(key,values){filters.push(r=>values.includes(r[key]));return q;},or(){return q;},order(){return q;},limit(){return q;},single(){one=true;return q;},maybeSingle(){one=true;optional=true;return q;},insert(row){operation='insert';payload=row;return q;},update(row){operation='update';payload=row;return q;},delete(){operation='delete';return q;},upsert(row,options={}){operation='upsert';payload=row;opts=options;return q;},then(resolve,reject){
       try {
         if(failure?.(table,operation)) return Promise.resolve({data:null,error:{message:'Injected database failure'}}).then(resolve,reject);
         let rows=tables[table].filter(r=>filters.every(f=>f(r)));
-        if(operation==='insert'){if(table==='work_items'&&tables[table].some(r=>r.id===payload.id))return Promise.resolve({data:null,error:{code:'23505',message:'duplicate'}}).then(resolve,reject);rows=[{id:payload.id??other,...payload}];tables[table].push(...rows);}
+        if(operation==='insert'){if(table==='work_items'&&tables[table].some(r=>r.id===payload.id))return Promise.resolve({data:null,error:{code:'23505',message:'duplicate'}}).then(resolve,reject);rows=[{id:payload.id??generatedId(),...payload}];tables[table].push(...rows);}
         if(operation==='update') rows.forEach(r=>Object.assign(r,payload));
         if(operation==='delete') tables[table]=tables[table].filter(r=>!rows.includes(r));
         if(operation==='upsert'){
           const keys=opts.onConflict?.split(',')??['id'];
           const existing=tables[table].find(r=>keys.every(k=>r[k]===payload[k]));
           if(existing){if(opts.ignoreDuplicates)rows=[];else{Object.assign(existing,payload);rows=[existing];}}
-          else{rows=[{id:other,...payload}];tables[table].push(...rows);}
+          else{rows=[{id:payload.id??generatedId(),...payload}];tables[table].push(...rows);}
         }
         if(one&&rows.length!==1&&!optional)return Promise.resolve({data:null,error:{message:'Expected one row'}}).then(resolve,reject);
         return Promise.resolve({data:one?(rows[0]??null):structuredClone(rows),error:null}).then(resolve,reject);
@@ -117,4 +119,33 @@ test('Source removal uses stored primary state, even if the client sends a stale
 test('Activity failure is an explicit warning after a saved mutation, so clients do not roll back a committed change',async()=>{
   const db=database({},(t,o)=>t==='activity_history'&&o==='insert'),result=await post(api(db),{op:'updateItem',itemId:id,patch:{title:'Saved'}});
   assert.equal(result.status,200);assert.equal(db.tables.work_items[0].title,'Saved');assert.match((await result.json()).warning,/saved/);
+});
+test('Each supported relationship type can be linked idempotently and unlinked; self-links and invalid types are rejected',async()=>{
+  const db=database({work_items:[item(),item({id:other,title:'Other'})]}),a=api(db);
+  for(const relationshipType of ['related','blocks','blocked_by','parent','duplicates','derived_from']){
+    const body={op:'addRelationship',itemId:id,targetId:other,relationshipType};
+    assert.equal((await post(a,body)).status,200);
+    assert.equal((await post(a,body)).status,200);
+    assert.equal(db.tables.work_item_relationships.filter(r=>r.relationship_type===relationshipType).length,1);
+  }
+  assert.equal(db.tables.activity_history.length,6);
+  assert.equal((await post(a,{op:'addRelationship',itemId:id,targetId:id,relationshipType:'related'})).status,400);
+  assert.equal((await post(a,{op:'addRelationship',itemId:id,targetId:other,relationshipType:'bogus'})).status,400);
+  const edge=db.tables.work_item_relationships[0];
+  assert.equal((await post(a,{op:'removeRelationship',itemId:id,edgeId:edge.id})).status,200);
+  assert.equal(db.tables.work_item_relationships.length,5);
+});
+test('Proxy preserves refreshed cookies on redirects and returns JSON 401 for expired or unauthorized API sessions',async()=>{
+  const {NextRequest}=require('next/server');
+  async function run(claims,error,path){
+    const proxy=load('lib/supabase/proxy.ts',{'../config':{ALLOWED_USER_ID:owner},'@supabase/ssr':{createServerClient:(_url,_key,options)=>({auth:{getClaims:async()=>{options.cookies.setAll([{name:'qa-refreshed-session',value:'refreshed',options:{path:'/'}}]);return {data:{claims},error};}}})}});
+    return proxy.updateSession(new NextRequest('https://work-os-gray.vercel.app'+path));
+  }
+  const redirect=await run({sub:owner},null,'/login');
+  assert.equal(redirect.status,307);assert.equal(redirect.headers.get('location'),'https://work-os-gray.vercel.app/');
+  assert.equal(redirect.cookies.get('qa-refreshed-session').value,'refreshed');assert.match(redirect.headers.get('cache-control'),/no-store/);
+  const expired=await run(null,{message:'expired'},'/api/work-items');
+  assert.equal(expired.status,401);assert.match((await expired.json()).error,/session expired/);
+  assert.equal((await run({sub:other},null,'/api/work-items')).status,401);
+  assert.equal((await run(null,{message:'expired'},'/')).headers.get('location'),'https://work-os-gray.vercel.app/login');
 });

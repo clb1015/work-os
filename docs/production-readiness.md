@@ -26,6 +26,8 @@ Audit date: October 4, 2026. Canonical repository, deployment and Supabase proje
 
 ## Remaining issues
 
+- Release is blocked pending user approval to merge the reviewable PR and publish the canonical production deployment. Post-fix production acceptance must follow that deployment.
+
 - Primary-source changes and activity writes are multiple requests, not a database transaction. Failures are surfaced and primary switching has compensation, but simultaneous tabs and partial outages can still cause inconsistent state. Use narrowly scoped SECURITY INVOKER database functions with ownership checks and row locks before AI-assisted writes.
 - Exact-title comparison across different Capture IDs is advisory and can race between tabs. Stable-ID retry protection is atomic via the existing primary key. Deliberate same-title items remain supported.
 - Supabase security advisor warns that leaked-password protection is disabled. Enable it in the existing project's Auth settings when supported by its plan. No auth setting was silently changed.
@@ -42,7 +44,7 @@ Audit date: October 4, 2026. Canonical repository, deployment and Supabase proje
 - Large page component and loosely typed API payloads should be split and typed before extending the reasoning layer.
 - Work item mutation and activity need one transaction. Sources lack a database uniqueness constraint for one primary per item; introduce it with transactional mutation functions.
 - RLS checks link-row ownership, but foreign keys do not enforce owner consistency between linked entities. The account gate and single user bound current exposure. Strengthen this before any multi-user expansion.
-- Nine unused-index performance notices are informational for this new, tiny database. Do not remove useful foreign-key/status indexes solely on current usage.
+- The initial nine unused-index notices decreased to three after QA traffic. These performance notices are informational for this new, tiny database. Do not remove useful foreign-key/status indexes solely on current usage.
 - Session expiry, network failures and concurrency should also be tested in an automated browser harness once the current live acceptance pass is complete.
 
 ## Ready / not ready for the AI layer
@@ -61,7 +63,12 @@ Not ready for autonomous AI writes. A constrained read-only reasoning pilot is t
 
 ## Validation evidence
 
-- Local regression suite: 13 behavior and injected-failure tests passed.
+- Local regression suite: 15 behavior and injected-failure tests passed.
 - Production build: passed with TypeScript checks.
-- Supabase security advisor: only leaked-password-protection warning. Performance advisor: only unused-index informational notices.
-- Post-fix production acceptance and final GitHub/Vercel SHA verification: pending at this checkpoint.
+- Supabase security advisor: only leaked-password-protection warning. Performance advisor: only three unused-index informational notices after QA.
+- GitHub CI for draft PR #1 passed on commit `479a909`: dependency install, regression suite and production build all succeeded. Vercel preview `dpl_6QkwQeGGHrH1Dg5V4V4Uayom3zEP` is READY for that commit.
+- Production acceptance on existing main verified: sign-in, logout and redirect to login when revisiting the protected route; Board area/type filters; status movement into Waiting and Completed; drawer title/action/notes edits; Idea Explore/Park/Commit; tags add/remove; all six relationship types added; one edge removed while five others remained in Supabase; sources add/remove, primary switching and replacement; history records; reload persistence; Projects, Search, Workflows and registry views. Temporary fixtures and their associated rows were removed. Baseline inventory restored to 17.
+- Original Workflows view showed canned progress despite zero workflow definitions/runs. That misleading progress is removed in the PR.
+- Production runtime error query reported no errors during the QA window.
+- Post-fix authenticated browser acceptance, real expired-token refresh and mobile viewport verification are still pending. Native credential protection restricted DOM/console inspection after secure sign-in; accessible UI and direct database verification remained available. Enlarged-zoom key presses did not change the viewport, so they are not counted as mobile testing.
+- Automatic approval review rejected a direct push to main: it considered the default-branch mutation unauthorized and asked for a safer branch/PR. The fixes are on `qa/production-readiness-2026-10-04` in draft PR #1, awaiting explicit user approval to merge/publish. Production and main remain synchronized at `4a91a3f`; fixes are not yet in production.
