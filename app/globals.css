@@ -256,3 +256,12 @@ button.primary,.primary{background:linear-gradient(180deg,#1aaea2,#138c85)!impor
 .source-actions{display:flex;align-items:center;gap:5px;flex-shrink:0}
 .source-actions>button:not(.icon-button){border:1px solid var(--line);background:#12212d;color:#94a7b6;border-radius:6px;padding:5px 7px;font-size:9px}
 @media(max-width:760px){.relation-add-grid,.source-add-grid{grid-template-columns:1fr}.source-add-grid input:nth-of-type(2),.source-add-grid button{grid-column:auto}.source-actions{align-items:flex-end;flex-direction:column}}
+
+.empty-state{padding:14px;color:var(--muted)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.drawer-tabs>span{padding:9px 0;color:var(--muted);font-size:12px}
+.proposal input{width:100%;margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:7px;background:#0d1924;color:var(--text)}
+.data-state button{margin-left:8px;border:1px solid var(--line);background:#0d1924;color:var(--text);border-radius:6px;padding:6px 9px}
+@media(max-width:760px){.page-heading{align-items:flex-start;flex-direction:column}.filters{width:100%;flex-wrap:wrap}.filters select{min-width:0;flex:1}.list-table>button{grid-template-columns:1fr;gap:8px}.topbar-title strong{font-size:14px}.top-actions{gap:4px}.top-actions button{padding:8px;font-size:11px}.executive-hero{gap:8px}.hero-chip{display:none}.registry-row{grid-template-columns:minmax(0,1fr) 80px}.drawer{width:96vw}.main{padding-bottom:20px}.source-list>div{align-items:flex-start}.source-list small{overflow-wrap:anywhere}.attention-panel{min-width:0}}
+@media(min-width:761px) and (max-width:1180px){.attention-header,.attention-row{grid-template-columns:minmax(0,1.4fr) 80px 85px minmax(0,1fr)}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

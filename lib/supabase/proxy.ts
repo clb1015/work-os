@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { ALLOWED_USER_ID } from '../config';
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -23,23 +24,31 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const { data } = await supabase.auth.getClaims();
+  const { data, error } = await supabase.auth.getClaims();
+  const authorized = !error && data?.claims?.sub === ALLOWED_USER_ID;
+  response.headers.set('Cache-Control', 'private, no-store');
+  function preserveSession(next: NextResponse) {
+    response.cookies.getAll().forEach(cookie => next.cookies.set(cookie));
+    next.headers.set('Cache-Control', 'private, no-store');
+    return next;
+  }
   const isPublicRoute =
-    request.nextUrl.pathname.startsWith('/login') ||
+    request.nextUrl.pathname === '/login' ||
     request.nextUrl.pathname.startsWith('/auth/');
 
-  if (!data?.claims && !isPublicRoute) {
+  if (!authorized && !isPublicRoute) {
+    if (request.nextUrl.pathname.startsWith('/api/')) return preserveSession(NextResponse.json({ error: 'Your session expired. Sign in again.' }, { status: 401 }));
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.search = '';
-    return NextResponse.redirect(url);
+    return preserveSession(NextResponse.redirect(url));
   }
 
-  if (data?.claims && request.nextUrl.pathname === '/login') {
+  if (authorized && request.nextUrl.pathname === '/login') {
     const url = request.nextUrl.clone();
     url.pathname = '/';
     url.search = '';
-    return NextResponse.redirect(url);
+    return preserveSession(NextResponse.redirect(url));
   }
 
   return response;
