@@ -4,7 +4,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const params = await searchParams;
-  const message = params.error ? 'Email or password is incorrect.' : '';
+  const message = params.error === 'session-expired' ? 'Your session expired. Please sign in again.' : params.error ? 'Email or password is incorrect.' : '';
 
   return (
     <main style={{minHeight:'100vh',display:'grid',placeItems:'center',padding:'24px',background:'radial-gradient(circle at 50% -10%, rgba(45,212,191,.09), transparent 30%), #071019',color:'#f2f6fa'}}>

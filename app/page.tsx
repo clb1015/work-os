@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { areas, bandCentralSteps } from '@/lib/mock-data';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { areas } from '@/lib/config';
+import { commandMetrics, needsAttention, normalizedTitle, relationshipLabel } from '@/lib/work-logic';
 import { Status, WorkItem } from '@/lib/types';
 import { workItemFromRow, workItemInsert, workItemPatch } from '@/lib/work-items';
 
@@ -32,8 +33,11 @@ export default function Home() {
   const [selected, setSelected] = useState<WorkItem | null>(null);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [aiText, setAiText] = useState('');
-  const [aiResponse, setAiResponse] = useState('');
+  const [dataWarning, setDataWarning] = useState('');
+  const [reloadCount, setReloadCount] = useState(0);
+  const [detailError, setDetailError] = useState('');
+  const [captureSaving, setCaptureSaving] = useState(false);
+  const capturePending = useRef(false);
   const [areaFilter, setAreaFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
   const [itemDetails, setItemDetails] = useState<ItemDetails | null>(null);
@@ -46,11 +50,14 @@ export default function Home() {
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body),
     });
+    if(response.status===401){ window.location.assign('/login?error=session-expired'); throw new Error('Your session expired. Sign in again.'); }
     if(!response.ok){
       const payload=await response.json().catch(()=>({}));
       throw new Error(payload.error||'Work OS request failed');
     }
-    return response.json();
+    const payload=await response.json();
+    if(payload.warning) setDataWarning(payload.warning);
+    return payload;
   }
 
   useEffect(() => {
@@ -59,7 +66,8 @@ export default function Home() {
     async function loadWorkItems(){
       try{
         const response=await fetch('/api/work-items',{cache:'no-store'});
-        if(!response.ok) throw new Error('Unable to verify your Work OS session.');
+        if(response.status===401){window.location.assign('/login?error=session-expired');return;}
+        if(!response.ok) throw new Error('Work OS could not load your data. Please retry.');
         const payload=await response.json();
         if(cancelled) return;
 
@@ -97,16 +105,17 @@ export default function Home() {
       }catch(error){
         if(!cancelled){
           console.error(error);
-          setDataError('Unable to verify your Work OS session.');
+          setDataError('Work OS could not load your data. Please retry.');
         }
       }finally{
         if(!cancelled) setLoadingData(false);
       }
     }
 
+    setLoadingData(true);
     void loadWorkItems();
     return()=>{cancelled=true;};
-  },[]);
+  },[reloadCount]);
 
   useEffect(() => {
     let cancelled=false;
@@ -114,6 +123,7 @@ export default function Home() {
     async function loadDetails(itemId:string){
       setDetailLoading(true);
       setItemDetails(null);
+      setDetailError('');
       try{
         const payload=await apiPost<any>({op:'details',itemId});
         if(cancelled) return;
@@ -122,7 +132,7 @@ export default function Home() {
         setItemDetails({
           relationships:(payload.relationships??[]).map((row:any)=>{
             const otherId=row.from_item_id===itemId?row.to_item_id:row.from_item_id;
-            return {edgeId:row.id,id:otherId,title:relatedById.get(otherId)??'Related work',relationshipType:row.relationship_type};
+            return {edgeId:row.id,id:otherId,title:relatedById.get(otherId)??'Related work',relationshipType:relationshipLabel(row.relationship_type,row.from_item_id===itemId)};
           }),
           tags:(payload.tags??[]).map((row:any)=>({id:row.id,name:row.name})),
           sources:(payload.sources??[]).map((row:any)=>({
@@ -133,7 +143,7 @@ export default function Home() {
           })),
         });
       }catch(error){
-        if(!cancelled) console.error('Unable to load item details',error);
+        if(!cancelled){console.error('Unable to load item details',error);setDetailError('Item details could not load. Please retry.');}
       }finally{
         if(!cancelled) setDetailLoading(false);
       }
@@ -144,14 +154,7 @@ export default function Home() {
     return()=>{cancelled=true;};
   },[selected?.id,detailRefresh]);
 
-  const metrics = useMemo(() => ({
-    Active: items.filter(i => i.status === 'Active').length,
-    Waiting: items.filter(i => i.status === 'Waiting').length,
-    Review: items.filter(i => i.status === 'Review').length,
-    'Missing Next Action': items.filter(i => ['Active','Ready'].includes(i.status) && !i.nextAction).length,
-    'Due Soon': items.filter(i => i.targetDate && i.status !== 'Done').length,
-  }), [items]);
-
+  const metrics = useMemo(() => commandMetrics(items), [items]);
   async function moveItem(id:string,status:Status){
     if(status==='Done'&&!confirm('Has the intended outcome actually been completed?')) return;
     const previous=items.find(i=>i.id===id);
@@ -174,6 +177,7 @@ export default function Home() {
         activity:{action:'status_changed',details:{from:previous.status,to:status}},
       });
       setDetailRefresh(v=>v+1);
+      setReloadCount(v=>v+1);
     }catch(error){
       console.error(error);
       setItems(prev=>prev.map(i=>i.id===id?previous:i));
@@ -182,37 +186,48 @@ export default function Home() {
     }
   }
 
-  async function saveCapturedItem(item:WorkItem){
+  async function saveCapturedItem(item:WorkItem,allowDuplicate=false){
+    if(capturePending.current) return false;
+    capturePending.current=true;setCaptureSaving(true);
     try{
-      const payload=await apiPost<any>({op:'createItem',row:workItemInsert(item,userId)});
+      const payload=await apiPost<any>({op:'createItem',row:{...workItemInsert(item,userId),id:item.id},allowDuplicate});
       const saved=workItemFromRow(payload.item);
-      setItems(prev=>[saved,...prev]);
+      setItems(prev=>[saved,...prev.filter(i=>i.id!==saved.id)]);
       setCaptureOpen(false);
+      return true;
     }catch(error){
       console.error(error);
-      alert('That work item could not be saved.');
-    }
+      alert(error instanceof Error?error.message:'That work item could not be saved.');
+      return false;
+    }finally{capturePending.current=false;setCaptureSaving(false);}
   }
 
   async function patchItem(id:string,patch:Partial<WorkItem>){
     const previous=items.find(i=>i.id===id);
-    if(!previous) return;
+    if(!previous) return false;
+    if(patch.status==='Done'&&previous.status!=='Done'&&!confirm('Has the intended outcome actually been completed?')) return false;
     const optimistic={...previous,...patch,lastActivityDays:0};
     setItems(prev=>prev.map(i=>i.id===id?optimistic:i));
     if(selected?.id===id) setSelected(optimistic);
     try{
-      await apiPost({
+      const payload=await apiPost<any>({
         op:'updateItem',
         itemId:id,
         patch:workItemPatch(patch),
         activity:{action:'updated',details:{fields:Object.keys(patch)}},
       });
+      const saved={...optimistic,...workItemFromRow(payload.item)};
+      setItems(prev=>prev.map(i=>i.id===id?saved:i));
+      if(selected?.id===id) setSelected(saved);
+      setReloadCount(v=>v+1);
       setDetailRefresh(v=>v+1);
+      return true;
     }catch(error){
       console.error(error);
       setItems(prev=>prev.map(i=>i.id===id?previous:i));
       if(selected?.id===id) setSelected(previous);
       alert('That change could not be saved.');
+      return false;
     }
   }
 
@@ -223,6 +238,7 @@ export default function Home() {
       await apiPost({op:'addTag',itemId:workItemId,name});
       setItems(prev=>prev.map(item=>item.id===workItemId?{...item,tags:[...new Set([...(item.tags??[]),name])]}:item));
       setDetailRefresh(v=>v+1);
+      setReloadCount(v=>v+1);
       return true;
     }catch(error){console.error(error);alert('That tag could not be linked.');return false;}
   }
@@ -232,6 +248,7 @@ export default function Home() {
       await apiPost({op:'removeTag',itemId:workItemId,tagId,name});
       setItems(prev=>prev.map(item=>item.id===workItemId?{...item,tags:(item.tags??[]).filter(tag=>tag!==name)}:item));
       setDetailRefresh(v=>v+1);
+      setReloadCount(v=>v+1);
     }catch(error){console.error(error);alert('That tag could not be removed.');}
   }
 
@@ -249,6 +266,7 @@ export default function Home() {
         }));
       }
       setDetailRefresh(v=>v+1);
+      setReloadCount(v=>v+1);
       return true;
     }catch(error){console.error(error);alert('That relationship could not be added.');return false;}
   }
@@ -263,6 +281,7 @@ export default function Home() {
         return item;
       }));
       setDetailRefresh(v=>v+1);
+      setReloadCount(v=>v+1);
     }catch(error){console.error(error);alert('That relationship could not be removed.');}
   }
 
@@ -273,6 +292,7 @@ export default function Home() {
       const payload=await apiPost<any>({op:'addSource',itemId:workItemId,name,sourceType,location:rawLocation.trim()});
       if(payload.isPrimary) setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:name}:item));
       setDetailRefresh(v=>v+1);
+      setReloadCount(v=>v+1);
       return true;
     }catch(error){console.error(error);alert('That source could not be linked.');return false;}
   }
@@ -282,6 +302,7 @@ export default function Home() {
       await apiPost({op:'setPrimarySource',itemId:workItemId,sourceId,sourceName});
       setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:sourceName}:item));
       setDetailRefresh(v=>v+1);
+      setReloadCount(v=>v+1);
     }catch(error){console.error(error);alert('The primary source could not be changed.');}
   }
 
@@ -293,23 +314,8 @@ export default function Home() {
         :undefined;
       if(wasPrimary) setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:replacement}:item));
       setDetailRefresh(v=>v+1);
+      setReloadCount(v=>v+1);
     }catch(error){console.error(error);alert('That source could not be removed.');}
-  }
-
-  function runAi(input: string) {
-    setAiText(input);
-    const q = input.toLowerCase();
-    if (q.includes('enrollment')) {
-      setAiResponse('You already have a connected enrollment ecosystem: Enrollment Dashboard, Arts Import & Reconciliation, District Arts Intelligence Hub, and Data Debrief Dashboard. Before creating new work, I would open the existing Enrollment Dashboard or compare the new idea against Arts Import & Reconciliation.');
-    } else if (q.includes('cte')) {
-      setAiResponse('Valencia DirectConnect Alignment is your main open CTE item. It is Active, high impact, and currently missing a concrete next action. That is the first thing I would clarify.');
-    } else if (q.includes('stalled')) {
-      setAiResponse('The clearest stalled items are Valencia DirectConnect Alignment, District Arts Intelligence Hub, and Nova Lakes Stage Issue. Valencia lacks a next action; Arts Intelligence Hub has had no activity in 9 days; Nova Lakes is waiting on Facilities.');
-    } else if (q.includes('weekly')) {
-      setAiResponse('Weekly review: focus first on Now-priority active work, resolve the missing next action on Valencia, follow up on Nova Lakes and Disney transportation, and decide whether Data Debrief Dashboard should be archived or folded into the Arts Intelligence Hub.');
-    } else {
-      setAiResponse('Today I would focus on work that is both Now priority and actionable: Band Central Funding, AI Fellows Problem of Practice, McGolden / Osceola Rocks Grant, and the Arts Intelligence Hub. Waiting items should be followed up, not treated as active production work.');
-    }
   }
 
   return (
@@ -317,11 +323,11 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">W</span><div><strong>Work OS</strong><small>Executive workspace</small></div></div>
         <nav>{views.map(v => <button key={v} className={view===v?'nav active':'nav'} onClick={() => setView(v)}><span className="nav-icon">{viewIcons[v]}</span><span>{v}</span></button>)}</nav>
-        <div className="side-section"><span>Areas</span>{areas.slice(0,6).map(a => <button key={a} className="area-link" onClick={() => {setAreaFilter(a);setView('Board')}}>{a}</button>)}</div>
+        <div className="side-section"><span>Areas</span>{areas.filter(a=>a!=='Unassigned').slice(0,6).map(a => <button key={a} className="area-link" onClick={() => {setAreaFilter(a);setView('Board')}}>{a}</button>)}</div>
       </aside>
       <main className="main">
-        <header className="topbar"><div className="topbar-title"><strong>Work OS</strong><span>{view}</span></div><div className="top-actions"><button className="ghost" onClick={() => setView('Search')}>⌕ Search</button><form action="/auth/signout" method="post"><button className="ghost" type="submit">Sign out</button></form><button className="primary" onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
-        <section className="content">{loadingData && <div className="data-state">Loading your Work OS…</div>}{dataError && <div className="data-state error">{dataError}</div>}
+        <header className="topbar"><div className="topbar-title"><strong>Work OS</strong><span>{view}</span></div><div className="top-actions"><button className="ghost" onClick={() => setView('Search')}>⌕ Search</button><form action="/auth/signout" method="post"><button className="ghost" type="submit">Sign out</button></form><button className="primary" disabled={loadingData||!!dataError} onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
+        <section className="content">{loadingData && <div className="data-state" role="status">Loading your Work OS…</div>}{dataError && <div className="data-state error" role="alert">{dataError} <button onClick={()=>setReloadCount(v=>v+1)}>Retry</button></div>}{dataWarning && <div className="data-state error" role="alert">{dataWarning} <button onClick={()=>setDataWarning('')}>Dismiss</button></div>}{!loadingData&&!dataError&&<>
           {view === 'Command Center' && <CommandCenter items={items} metrics={metrics} onOpen={setSelected} />}
           {view === 'Board' && <Board items={items} areaFilter={areaFilter} setAreaFilter={setAreaFilter} typeFilter={typeFilter} setTypeFilter={setTypeFilter} onOpen={setSelected} onMove={moveItem} />}
           {view === 'Projects' && <ListView title="Projects" items={items.filter(i=>i.type==='Project')} onOpen={setSelected} />}
@@ -330,17 +336,18 @@ export default function Home() {
           {view === 'Dashboards & Tools' && <Registry items={items} onOpen={setSelected} />}
           {view === 'Waiting' && <Waiting items={items} onOpen={setSelected} />}
           {view === 'Completed' && <ListView title="Completed & Archived" items={items.filter(i=>['Done','Archived'].includes(i.status))} onOpen={setSelected} />}
-          {view === 'Search' && <SearchView items={items} query={query} setQuery={setQuery} onOpen={setSelected} runAi={runAi} aiResponse={aiResponse} />}
-        </section>
-        <div className="ai-bar"><input value={aiText} onChange={e=>setAiText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')runAi(aiText)}} placeholder="Ask Work OS... What's worth working on today?"/><button onClick={()=>runAi(aiText)}>Ask</button>{aiResponse && <div className="ai-popover"><strong>Mock GPT-6.1 Sol</strong><p>{aiResponse}</p><button onClick={()=>setAiResponse('')}>Close</button></div>}</div>
+          {view === 'Search' && <SearchView items={items} query={query} setQuery={setQuery} onOpen={setSelected} />}
+        </>}</section>
+
       </main>
       {selected && <Drawer
         item={selected}
         allItems={items}
         details={itemDetails}
         loadingDetails={detailLoading}
+        detailError={detailError}
+        onRetryDetails={()=>setDetailRefresh(v=>v+1)}
         onClose={()=>setSelected(null)}
-        onMove={moveItem}
         onPatch={patchItem}
         onAddTag={addTag}
         onRemoveTag={removeTag}
@@ -350,72 +357,80 @@ export default function Home() {
         onSetPrimarySource={setPrimarySource}
         onRemoveSource={removeSource}
       />}
-      {captureOpen && <Capture items={items} onClose={()=>setCaptureOpen(false)} onSave={saveCapturedItem} onOpenExisting={(id)=>{const found=items.find(i=>i.legacyId===id||i.id===id); if(found){setSelected(found);setCaptureOpen(false)}}} />}
+      {captureOpen && <Capture saving={captureSaving} items={items} onClose={()=>{if(!capturePending.current)setCaptureOpen(false)}} onSave={saveCapturedItem} onOpenExisting={(id)=>{const found=items.find(i=>i.legacyId===id||i.id===id); if(found){setSelected(found);setCaptureOpen(false)}}} />}
     </div>
   );
 }
 
 function CommandCenter({items,metrics,onOpen}:{items:WorkItem[];metrics:Record<string,number>;onOpen:(i:WorkItem)=>void}){
-  const attention = items.filter(i => (i.status==='Waiting') || (!i.nextAction && ['Active','Ready'].includes(i.status)) || (i.lastActivityDays??0)>=8).slice(0,5);
+  const attention = items.filter(needsAttention).slice(0,5);
   const active = items.filter(i=>i.status==='Active' && i.priority==='Now').slice(0,6);
   const metricMeta = [
     ['◇','Currently moving'],
     ['◷','External dependencies'],
     ['▤','Needs decision'],
     ['↗','Needs definition'],
-    ['◫','Upcoming commitments']
+    ['◫','Next 7 days, including today']
   ];
   return <>
     <div className="hero executive-hero">
-      <div><p className="eyebrow">Friday, October 2</p><h1>Command Center</h1><p>A focused view of what needs your attention across work already in motion.</p></div>
+      <div><p className="eyebrow">{new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})}</p><h1>Command Center</h1><p>A focused view of what needs your attention across work already in motion.</p></div>
       <div className="hero-chip">Executive view</div>
     </div>
     <div className="metrics">{Object.entries(metrics).map(([k,v],idx)=><div className={'metric metric-'+(idx+1)} key={k}><div className="metric-value"><strong>{v}</strong><span className="metric-icon">{metricMeta[idx][0]}</span></div><span>{k}</span><small>{metricMeta[idx][1]}</small></div>)}</div>
     <SectionTitle title="Needs Attention" subtitle="Items that require your input, decision, or follow-up"/>
     <div className="attention-panel">
       <div className="attention-header"><span>Item</span><span>Type</span><span>Status</span><span>Next Action</span></div>
-      {attention.map(i=><button className="attention attention-row" key={i.id} onClick={()=>onOpen(i)}>
+      {!attention.length&&<p className="empty-state">No items need attention.</p>}{attention.map(i=><button className="attention attention-row" key={i.id} onClick={()=>onOpen(i)}>
         <div><strong>{i.title}</strong><span>{i.area}</span></div>
         <span className="type-chip">{i.type}</span>
-        <span className={'status-chip status-'+i.status.toLowerCase()}>{i.status==='Waiting'?'Waiting':!i.nextAction?'Action Needed':'Review'}</span>
-        <div className="attention-next">{i.nextAction||'Set a concrete next action'}<small>{i.status==='Waiting'?'Waiting '+(i.lastActivityDays??0)+' days':(i.lastActivityDays??0)>=8?'No activity in '+i.lastActivityDays+' days':'Needs review'}</small></div>
+        <span className={'status-chip status-'+i.status.toLowerCase()}>{i.status}</span>
+        <div className="attention-next">{i.nextAction||'Set a concrete next action'}<small>{i.status==='Waiting'?(i.lastActivityDays??0)+' days since activity':(i.lastActivityDays??0)>=8?'No activity in '+i.lastActivityDays+' days':'Needs review'}</small></div>
       </button>)}
     </div>
     <SectionTitle title="Active Now" subtitle="Now-priority work that is currently actionable"/>
-    <div className="card-grid active-grid">{active.map(i=><WorkCard key={i.id} item={i} onOpen={onOpen}/>)}</div>
+    <div className="card-grid active-grid">{!active.length&&<p className="empty-state">No Now-priority active work.</p>}{active.map(i=><WorkCard key={i.id} item={i} onOpen={onOpen}/>)}</div>
   </>
 }
 
 function Board({items,areaFilter,setAreaFilter,typeFilter,setTypeFilter,onOpen,onMove}:{items:WorkItem[];areaFilter:string;setAreaFilter:(s:string)=>void;typeFilter:string;setTypeFilter:(s:string)=>void;onOpen:(i:WorkItem)=>void;onMove:(id:string,s:Status)=>void}){
   const types=[...new Set(items.map(i=>i.type))]; const filtered=items.filter(i=>(areaFilter==='All'||i.area===areaFilter)&&(typeFilter==='All'||i.type===typeFilter));
-  return <><div className="page-heading"><div><p className="eyebrow">Portfolio view</p><h1>Board</h1><p>Capture → Clarify → Ready → Active → Waiting → Review → Done.</p></div><div className="filters"><select value={areaFilter} onChange={e=>setAreaFilter(e.target.value)}><option>All</option>{areas.map(a=><option key={a}>{a}</option>)}</select><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}><option>All</option>{types.map(t=><option key={t}>{t}</option>)}</select></div></div><div className="kanban">{statuses.map(s=><div className={"column column-"+s.toLowerCase()} key={s}><div className="column-head"><strong>{s}</strong><span>{filtered.filter(i=>i.status===s).length}</span></div>{filtered.filter(i=>i.status===s).map(i=><div className="kanban-card" key={i.id}><button className="card-open" onClick={()=>onOpen(i)}><span className="kicker">{i.type}</span><strong>{i.title}</strong><span className="area-dot-line"><i></i>{i.area}</span><small>{i.nextAction||'No next action set'}</small></button><select value={i.status} onChange={e=>onMove(i.id,e.target.value as Status)}>{statuses.map(st=><option key={st}>{st}</option>)}</select></div>)}</div>)}</div></>
+  return <><div className="page-heading"><div><p className="eyebrow">Portfolio view</p><h1>Board</h1><p>Capture → Clarify → Ready → Active → Waiting → Review → Done.</p></div><div className="filters"><select aria-label="Filter by area" value={areaFilter} onChange={e=>setAreaFilter(e.target.value)}><option>All</option>{[...new Set([...areas,...items.map(i=>i.area)])].map(a=><option key={a}>{a}</option>)}</select><select aria-label="Filter by type" value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}><option>All</option>{types.map(t=><option key={t}>{t}</option>)}</select></div></div><div className="kanban">{statuses.map(s=><div className={"column column-"+s.toLowerCase()} key={s}><div className="column-head"><strong>{s}</strong><span>{filtered.filter(i=>i.status===s).length}</span></div>{filtered.filter(i=>i.status===s).map(i=><div className="kanban-card" key={i.id}><button className="card-open" onClick={()=>onOpen(i)}><span className="kicker">{i.type}</span><strong>{i.title}</strong><span className="area-dot-line"><i></i>{i.area}</span><small>{i.nextAction||'No next action set'}</small></button><select aria-label={"Status for "+i.title} value={i.status} onChange={e=>onMove(i.id,e.target.value as Status)}>{statuses.map(st=><option key={st}>{st}</option>)}</select></div>)}</div>)}</div></>
 }
 
-function ListView({title,items,onOpen}:{title:string;items:WorkItem[];onOpen:(i:WorkItem)=>void}){return <><div className="page-heading"><div><h1>{title}</h1><p>{items.length} items</p></div></div><div className="list-table">{items.map(i=><button key={i.id} onClick={()=>onOpen(i)}><div><strong>{i.title}</strong><span>{i.area} · {i.type}</span></div><span className={`status status-${i.status.toLowerCase()}`}>{i.status}</span><span>{i.nextAction||'No next action'}</span></button>)}</div></>}
+function ListView({title,items,onOpen}:{title:string;items:WorkItem[];onOpen:(i:WorkItem)=>void}){return <><div className="page-heading"><div><h1>{title}</h1><p>{items.length} items</p></div></div><div className="list-table">{!items.length&&<p className="empty-state">No items here yet.</p>}{items.map(i=><button key={i.id} onClick={()=>onOpen(i)}><div><strong>{i.title}</strong><span>{i.area} · {i.type}</span></div><span className={`status status-${i.status.toLowerCase()}`}>{i.status}</span><span>{i.nextAction||'No next action'}</span></button>)}</div></>}
 
-function Ideas({items,onPatch,onOpen}:{items:WorkItem[];onPatch:(id:string,patch:Partial<WorkItem>)=>void;onOpen:(i:WorkItem)=>void}){const stages=['Spark','Explore','Promising','Park'];return <><div className="page-heading"><div><h1>Idea Incubator</h1><p>Interesting does not automatically mean committed.</p></div></div><div className="kanban ideas">{stages.map(stage=><div className="column" key={stage}><div className="column-head"><strong>{stage}</strong></div>{items.filter(i=>i.type==='Idea'&&(i.ideaStage||'Spark')===stage).map(i=><div className="kanban-card" key={i.id}><button className="card-open" onClick={()=>onOpen(i)}><strong>{i.title}</strong><small>{i.nextAction}</small></button><div className="mini-actions"><button onClick={()=>onPatch(i.id,{ideaStage:'Explore'})}>Explore</button><button onClick={()=>onPatch(i.id,{type:'Project',status:'Clarify',ideaStage:'Commit'})}>Commit</button><button onClick={()=>onPatch(i.id,{ideaStage:'Park'})}>Park</button></div></div>)}</div>)}</div></>}
+function Ideas({items,onPatch,onOpen}:{items:WorkItem[];onPatch:(id:string,patch:Partial<WorkItem>)=>void;onOpen:(i:WorkItem)=>void}){const stages=['Spark','Explore','Promising','Park'];return <><div className="page-heading"><div><h1>Idea Incubator</h1><p>Interesting does not automatically mean committed.</p></div></div><div className="kanban ideas">{stages.map(stage=><div className="column" key={stage}><div className="column-head"><strong>{stage}</strong></div>{items.filter(i=>i.type==='Idea'&&!['Done','Archived'].includes(i.status)&&(i.ideaStage||'Spark')===stage).map(i=><div className="kanban-card" key={i.id}><button className="card-open" onClick={()=>onOpen(i)}><strong>{i.title}</strong><small>{i.nextAction}</small></button><div className="mini-actions"><button onClick={()=>onPatch(i.id,{ideaStage:'Explore'})}>Explore</button><button onClick={()=>onPatch(i.id,{type:'Project',status:'Clarify',ideaStage:'Commit'})}>Commit</button><button onClick={()=>onPatch(i.id,{ideaStage:'Park'})}>Park</button></div></div>)}</div>)}</div></>}
 
-function Workflows({items,onOpen}:{items:WorkItem[];onOpen:(i:WorkItem)=>void}){return <><div className="page-heading"><div><h1>Workflows</h1><p>Reusable process definitions and their current runs.</p></div></div><div className="workflow-grid">{items.filter(i=>i.type==='Workflow').map(i=><div className="workflow" key={i.id}><div className="workflow-top"><div><span className="kicker">Workflow definition</span><h2>{i.title}</h2><p>{i.purpose||i.outcome}</p></div><button onClick={()=>onOpen(i)}>Details</button></div>{i.legacyId==='band-central'&&<><div className="run-label">Current run · 2026–27</div><div className="steps">{bandCentralSteps.map(([label,done])=><div key={label} className={done?'step done':'step'}><span>{done?'✓':'○'}</span>{label}</div>)}</div></>}</div>)}</div></>}
+function Workflows({items,onOpen}:{items:WorkItem[];onOpen:(i:WorkItem)=>void}){
+  const workflows=items.filter(i=>i.type==='Workflow');
+  return <><div className="page-heading"><div><h1>Workflows</h1><p>Workflow work items and process notes.</p></div></div><div className="workflow-grid">{!workflows.length&&<p className="empty-state">No workflows yet.</p>}{workflows.map(i=><div className="workflow" key={i.id}><div className="workflow-top"><div><span className="kicker">Workflow work item</span><h2>{i.title}</h2><p>{i.purpose||i.outcome}</p></div><button onClick={()=>onOpen(i)}>Details</button></div><p className="muted-line">Workflow execution tracking is not configured.</p></div>)}</div></>;
+}
 
 function Registry({items,onOpen}:{items:WorkItem[];onOpen:(i:WorkItem)=>void}){const data=items.filter(i=>['Dashboard','Tool / App'].includes(i.type));return <><div className="page-heading"><div><h1>Dashboards & Tools</h1><p>Know what already exists before building something new.</p></div></div><div className="registry"><div className="registry-row header"><span>Name</span><span>Purpose</span><span>State</span><span>Source</span></div>{data.map(i=><button className="registry-row" key={i.id} onClick={()=>onOpen(i)}><span><strong>{i.title}</strong><small>{i.type}</small></span><span>{i.purpose||i.outcome||'—'}</span><span>{i.status}</span><span>{i.source||'Not set'}</span></button>)}</div></>}
 
-function Waiting({items,onOpen}:{items:WorkItem[];onOpen:(i:WorkItem)=>void}){const data=items.filter(i=>i.status==='Waiting');return <><div className="page-heading"><div><h1>Waiting</h1><p>External dependencies separated from active production work.</p></div></div><div className="attention-list">{data.map(i=><button className="attention" key={i.id} onClick={()=>onOpen(i)}><div><strong>{i.title}</strong><span>{i.waitingOn||'External dependency'}</span></div><div className="reason">{i.lastActivityDays ?? 0} days waiting</div></button>)}</div></>}
+function Waiting({items,onOpen}:{items:WorkItem[];onOpen:(i:WorkItem)=>void}){const data=items.filter(i=>i.status==='Waiting');return <><div className="page-heading"><div><h1>Waiting</h1><p>External dependencies separated from active production work.</p></div></div><div className="attention-list">{!data.length&&<p className="empty-state">Nothing waiting.</p>}{data.map(i=><button className="attention" key={i.id} onClick={()=>onOpen(i)}><div><strong>{i.title}</strong><span>{i.waitingOn||'External dependency'}</span></div><div className="reason">{i.lastActivityDays ?? 0} days since last activity</div></button>)}</div></>}
 
-function SearchView({items,query,setQuery,onOpen,runAi,aiResponse}:{items:WorkItem[];query:string;setQuery:(s:string)=>void;onOpen:(i:WorkItem)=>void;runAi:(s:string)=>void;aiResponse:string}){const q=query.toLowerCase(); const results=q?items.filter(i=>[i.title,i.area,i.type,i.purpose,i.outcome,i.nextAction,i.tags?.join(' ')].filter(Boolean).join(' ').toLowerCase().includes(q)):[];return <><div className="page-heading"><div><h1>Find My Work</h1><p>Search first. Build second.</p></div></div><div className="search-box"><input autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search work, dashboards, tools, areas..."/><button onClick={()=>runAi(query)}>Ask semantically</button></div><div className="demo-prompts"><button onClick={()=>{setQuery('enrollment');runAi('What have I already built around enrollment?')}}>What have I already built around enrollment?</button><button onClick={()=>runAi('Show me stalled projects')}>Show me stalled projects</button><button onClick={()=>runAi('What am I forgetting in CTE?')}>What am I forgetting in CTE?</button></div>{q.includes('new enrollment importer')&&<div className="duplicate-alert"><strong>Related existing work found</strong><h3>Arts Import & Reconciliation</h3><p>This appears to substantially overlap with the idea you are describing. Open the existing canonical importer before creating a new item.</p><button onClick={()=>(()=>{const existing=items.find(i=>i.legacyId==='importer'); if(existing) onOpen(existing)})()}>Continue existing work</button></div>}<div className="card-grid">{results.map(i=><WorkCard key={i.id} item={i} onOpen={onOpen}/>)}</div>{aiResponse&&<div className="inline-ai"><strong>Mock GPT-6.1 Sol analysis</strong><p>{aiResponse}</p></div>}</>}
+function SearchView({items,query,setQuery,onOpen}:{items:WorkItem[];query:string;setQuery:(s:string)=>void;onOpen:(i:WorkItem)=>void}){
+  const q=query.trim().toLowerCase();
+  const results=q?items.filter(i=>[i.title,i.area,i.type,i.purpose,i.outcome,i.nextAction,i.notes,i.source,i.tags?.join(' '),i.relatedItems?.join(' ')].filter(Boolean).join(' ').toLowerCase().includes(q)):[];
+  return <><div className="page-heading"><div><h1>Find My Work</h1><p>Search existing work before creating something new.</p></div></div><div className="search-box"><input aria-label="Search work items" autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search work, dashboards, tools, areas..."/></div><div className="card-grid">{results.map(i=><WorkCard key={i.id} item={i} onOpen={onOpen}/>)}</div><p className="empty-state">{q?`${results.length} matching items`:'Enter a search term.'}</p></>;
+}
 
 function WorkCard({item,onOpen}:{item:WorkItem;onOpen:(i:WorkItem)=>void}){return <button className="work-card" onClick={()=>onOpen(item)}><div className="work-card-top"><span className="type-chip">{item.type}</span><span className="priority-mark">{item.priority}</span></div><strong>{item.title}</strong><span className="area-dot-line"><i></i>{item.area}</span><small><b>Next:</b> {item.nextAction||'Set a next action'}</small><div className="work-card-footer"><span>{item.impact} impact</span><span>{item.effort}</span></div></button>}
 function SectionTitle({title,subtitle}:{title:string;subtitle:string}){return <div className="section-title"><div><h2>{title}</h2><p>{subtitle}</p></div></div>}
 
 function Drawer({
-  item,allItems,details,loadingDetails,onClose,onMove,onPatch,onAddTag,onRemoveTag,onAddRelationship,onRemoveRelationship,onAddSource,onSetPrimarySource,onRemoveSource
+  item,allItems,details,loadingDetails,detailError,onRetryDetails,onClose,onPatch,onAddTag,onRemoveTag,onAddRelationship,onRemoveRelationship,onAddSource,onSetPrimarySource,onRemoveSource
 }:{
   item:WorkItem;
   allItems:WorkItem[];
   details:ItemDetails|null;
   loadingDetails:boolean;
+  detailError:string;
+  onRetryDetails:()=>void;
   onClose:()=>void;
-  onMove:(id:string,s:Status)=>Promise<void>;
-  onPatch:(id:string,patch:Partial<WorkItem>)=>Promise<void>;
+  onPatch:(id:string,patch:Partial<WorkItem>)=>Promise<boolean>;
   onAddTag:(workItemId:string,name:string)=>Promise<boolean>;
   onRemoveTag:(workItemId:string,tagId:string,name:string)=>Promise<void>;
   onAddRelationship:(workItemId:string,targetId:string,relationshipType:string)=>Promise<boolean>;
@@ -434,12 +449,12 @@ function Drawer({
   const [sourceLocation,setSourceLocation]=useState('');
   const [relationSaving,setRelationSaving]=useState(false);
 
-  useEffect(()=>setDraft(item),[item]);
+  useEffect(()=>setDraft(item),[item.id]);
+  const dialogRef=useDialog(onClose);
 
   async function save(){
     setSaving(true);
-    const statusChanged=draft.status!==item.status;
-    if(statusChanged) await onMove(item.id,draft.status);
+    if(!draft.title.trim()){alert('A title is required.');setSaving(false);return;}
     await onPatch(item.id,{
       title:draft.title,
       status:draft.status,
@@ -483,24 +498,24 @@ function Drawer({
   }
 
   return <div className="drawer-backdrop" onClick={onClose}>
-    <aside className="drawer" onClick={e=>e.stopPropagation()}>
+    <aside ref={dialogRef} role="dialog" aria-modal="true" aria-label="Edit work item" className="drawer" onClick={e=>e.stopPropagation()}>
       <div className="drawer-head">
         <div className="drawer-title-edit">
           <span className="type-chip">{draft.type}</span>
-          <input className="drawer-title-input" value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/>
+          <input aria-label="Work item title" maxLength={300} className="drawer-title-input" value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/>
           <p className="drawer-subtitle">{draft.area}</p>
         </div>
-        <button onClick={onClose}>×</button>
+        <button aria-label="Close" onClick={onClose}>×</button>
       </div>
-      <div className="drawer-tabs"><button className="active">Overview</button><button>Activity</button><button>Links</button></div>
+      <div className="drawer-tabs"><span>Overview, links & activity</span></div>{detailError&&<p className="data-state error" role="alert">{detailError} <button onClick={onRetryDetails}>Retry details</button></p>}
 
       <div className="field-row editable-fields">
-        <label>Status<select value={draft.status} onChange={e=>setDraft({...draft,status:e.target.value as Status})}>{statuses.map(s=><option key={s}>{s}</option>)}</select></label>
+        <label>Status<select value={draft.status} onChange={e=>setDraft({...draft,status:e.target.value as Status})}>{[...statuses,'Archived'].map(s=><option key={s}>{s}</option>)}</select></label>
         <label>Priority<select value={draft.priority} onChange={e=>setDraft({...draft,priority:e.target.value as WorkItem['priority']})}>{priorities.map(v=><option key={v}>{v}</option>)}</select></label>
         <label>Impact<select value={draft.impact} onChange={e=>setDraft({...draft,impact:e.target.value as WorkItem['impact']})}>{impacts.map(v=><option key={v}>{v}</option>)}</select></label>
         <label>Effort<select value={draft.effort} onChange={e=>setDraft({...draft,effort:e.target.value as WorkItem['effort']})}>{efforts.map(v=><option key={v}>{v}</option>)}</select></label>
         <label>Type<select value={draft.type} onChange={e=>setDraft({...draft,type:e.target.value as WorkItem['type']})}>{workTypes.map(v=><option key={v}>{v}</option>)}</select></label>
-        <label>Area<select value={draft.area} onChange={e=>setDraft({...draft,area:e.target.value})}>{areas.map(v=><option key={v}>{v}</option>)}</select></label>
+        <label>Area<select value={draft.area} onChange={e=>setDraft({...draft,area:e.target.value})}>{[...new Set([...areas,draft.area])].map(v=><option key={v}>{v}</option>)}</select></label>
         <label>Target Date<input type="date" value={draft.targetDate||''} onChange={e=>setDraft({...draft,targetDate:e.target.value||undefined})}/></label>
         {draft.type==='Idea'&&<label>Idea Stage<select value={draft.ideaStage||'Spark'} onChange={e=>setDraft({...draft,ideaStage:e.target.value as WorkItem['ideaStage']})}>{['Spark','Explore','Promising','Commit','Park'].map(v=><option key={v}>{v}</option>)}</select></label>}
       </div>
@@ -514,49 +529,49 @@ function Drawer({
 
       <div className="detail relational-editor">
         <span>Tags</span>
-        {loadingDetails?<p className="muted-line">Loading tags…</p>:details?.tags.length?<div className="tags editable-tags">{details.tags.map(tag=><b key={tag.id}>{tag.name}<button onClick={()=>onRemoveTag(item.id,tag.id,tag.name)} aria-label={'Remove '+tag.name}>×</button></b>)}</div>:<p className="muted-line">No tags linked.</p>}
+        {detailError?<p className="muted-line">Details unavailable.</p>:loadingDetails?<p className="muted-line">Loading tags…</p>:details?.tags.length?<div className="tags editable-tags">{details.tags.map(tag=><b key={tag.id}>{tag.name}<button onClick={()=>onRemoveTag(item.id,tag.id,tag.name)} aria-label={'Remove '+tag.name}>×</button></b>)}</div>:<p className="muted-line">No tags linked.</p>}
         <div className="relation-add-row">
-          <input value={tagName} onChange={e=>setTagName(e.target.value)} placeholder="Add a tag" onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void handleAddTag()}}}/>
-          <button onClick={handleAddTag} disabled={!tagName.trim()||relationSaving}>Add</button>
+          <input value={tagName} onChange={e=>setTagName(e.target.value)} aria-label="Tag name" placeholder="Add a tag" onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void handleAddTag()}}}/>
+          <button onClick={handleAddTag} disabled={!tagName.trim()||relationSaving||loadingDetails||!!detailError}>Add</button>
         </div>
       </div>
 
       <div className="detail relational-editor">
         <span>Relationships</span>
-        {loadingDetails?<p className="muted-line">Loading relationships…</p>:details?.relationships.length?<div className="relationship-list">{details.relationships.map(rel=><div key={rel.edgeId}><span><strong>{rel.title}</strong><small>{rel.relationshipType.replaceAll('_',' ')}</small></span><button className="icon-button" onClick={()=>onRemoveRelationship(item.id,rel.edgeId,rel.id,rel.title)}>×</button></div>)}</div>:<p className="muted-line">No relationships linked.</p>}
+        {detailError?<p className="muted-line">Details unavailable.</p>:loadingDetails?<p className="muted-line">Loading relationships…</p>:details?.relationships.length?<div className="relationship-list">{details.relationships.map(rel=><div key={rel.edgeId}><span><strong>{rel.title}</strong><small>{rel.relationshipType.replaceAll('_',' ')}</small></span><button className="icon-button" aria-label={"Remove relationship to "+rel.title} onClick={()=>onRemoveRelationship(item.id,rel.edgeId,rel.id,rel.title)}>×</button></div>)}</div>:<p className="muted-line">No relationships linked.</p>}
         <div className="relation-add-grid">
-          <select value={relationshipTarget} onChange={e=>setRelationshipTarget(e.target.value)}>
+          <select aria-label="Related work item" value={relationshipTarget} onChange={e=>setRelationshipTarget(e.target.value)}>
             <option value="">Select work item…</option>
             {allItems.filter(candidate=>candidate.id!==item.id).sort((a,b)=>a.title.localeCompare(b.title)).map(candidate=><option key={candidate.id} value={candidate.id}>{candidate.title}</option>)}
           </select>
-          <select value={relationshipType} onChange={e=>setRelationshipType(e.target.value)}>
+          <select aria-label="Relationship type" value={relationshipType} onChange={e=>setRelationshipType(e.target.value)}>
             {['related','blocks','blocked_by','parent','duplicates','derived_from'].map(type=><option key={type} value={type}>{type.replaceAll('_',' ')}</option>)}
           </select>
-          <button onClick={handleAddRelationship} disabled={!relationshipTarget||relationSaving}>Link</button>
+          <button onClick={handleAddRelationship} disabled={!relationshipTarget||relationSaving||loadingDetails||!!detailError}>Link</button>
         </div>
       </div>
 
       <div className="detail relational-editor">
         <span>Sources of Truth</span>
-        {loadingDetails?<p className="muted-line">Loading sources…</p>:details?.sources.length?<div className="source-list">{details.sources.map(source=><div key={source.id}><span><strong>{source.name}{source.isPrimary?' · Primary':''}</strong><small>{source.sourceType}{source.location?' · '+source.location:''}</small></span><span className="source-actions">{!source.isPrimary&&<button onClick={()=>onSetPrimarySource(item.id,source.id,source.name)}>Make primary</button>}<button className="icon-button" onClick={()=>onRemoveSource(item.id,source.id,source.name,source.isPrimary)}>×</button></span></div>)}</div>:<p className="muted-line">No source linked.</p>}
+        {detailError?<p className="muted-line">Details unavailable.</p>:loadingDetails?<p className="muted-line">Loading sources…</p>:details?.sources.length?<div className="source-list">{details.sources.map(source=><div key={source.id}><span><strong>{source.name}{source.isPrimary?' · Primary':''}</strong><small>{source.sourceType}{source.location?' · '+source.location:''}</small></span><span className="source-actions">{!source.isPrimary&&<button onClick={()=>onSetPrimarySource(item.id,source.id,source.name)}>Make primary</button>}<button className="icon-button" aria-label={"Remove source "+source.name} onClick={()=>onRemoveSource(item.id,source.id,source.name,source.isPrimary)}>×</button></span></div>)}</div>:<p className="muted-line">No source linked.</p>}
         <div className="source-add-grid">
-          <input value={sourceName} onChange={e=>setSourceName(e.target.value)} placeholder="Source name"/>
-          <select value={sourceType} onChange={e=>setSourceType(e.target.value)}>
+          <input aria-label="Source name" value={sourceName} onChange={e=>setSourceName(e.target.value)} placeholder="Source name"/>
+          <select aria-label="Source type" value={sourceType} onChange={e=>setSourceType(e.target.value)}>
             {['github','onedrive','local','vercel','supabase','notion','url','other'].map(type=><option key={type} value={type}>{type}</option>)}
           </select>
-          <input value={sourceLocation} onChange={e=>setSourceLocation(e.target.value)} placeholder="Path or URL (optional)"/>
-          <button onClick={handleAddSource} disabled={!sourceName.trim()||relationSaving}>Add source</button>
+          <input aria-label="Source location" value={sourceLocation} onChange={e=>setSourceLocation(e.target.value)} placeholder="Path or URL (optional)"/>
+          <button onClick={handleAddSource} disabled={!sourceName.trim()||relationSaving||loadingDetails||!!detailError}>Add source</button>
         </div>
       </div>
 
       <div className="detail">
         <span>Activity</span>
-        {loadingDetails?<p className="muted-line">Loading activity…</p>:details?.activity.length?<div className="activity-list">{details.activity.map(entry=><div key={entry.id}><strong>{entry.action.replaceAll('_',' ')}</strong><small>{new Date(entry.createdAt).toLocaleString()}</small></div>)}</div>:<p className="muted-line">No activity recorded.</p>}
+        {detailError?<p className="muted-line">Details unavailable.</p>:loadingDetails?<p className="muted-line">Loading activity…</p>:details?.activity.length?<div className="activity-list">{details.activity.map(entry=><div key={entry.id}><strong>{entry.action.replaceAll('_',' ')}</strong><small>{new Date(entry.createdAt).toLocaleString()}</small></div>)}</div>:<p className="muted-line">No activity recorded.</p>}
       </div>
 
       <div className="drawer-savebar">
         <span>Changes save to Supabase and remain after refresh.</span>
-        <button className="primary" onClick={save} disabled={saving}>{saving?'Saving…':'Save changes'}</button>
+        <button className="primary" onClick={save} disabled={saving||loadingDetails||!!detailError}>{saving?'Saving…':'Save changes'}</button>
       </div>
     </aside>
   </div>
@@ -564,8 +579,41 @@ function Drawer({
 
 function EditableDetail({label,value,onChange,multiline=false}:{label:string;value?:string;onChange:(value:string|undefined)=>void;multiline?:boolean}){
   return <div className="detail editable-detail"><span>{label}</span>{multiline
-    ?<textarea value={value||''} onChange={e=>onChange(e.target.value||undefined)} rows={3}/>
-    :<input value={value||''} onChange={e=>onChange(e.target.value||undefined)}/>}</div>
+    ?<textarea aria-label={label} value={value||''} onChange={e=>onChange(e.target.value||undefined)} rows={3}/>
+    :<input aria-label={label} value={value||''} onChange={e=>onChange(e.target.value||undefined)}/>}</div>
 }
 
-function Capture({items,onClose,onSave,onOpenExisting}:{items:WorkItem[];onClose:()=>void;onSave:(i:WorkItem)=>void;onOpenExisting:(id:string)=>void}){const [text,setText]=useState('');const [analyzed,setAnalyzed]=useState(false);const overlap=text.toLowerCase().includes('enrollment')||text.toLowerCase().includes('importer'); const proposal:WorkItem={id:`idea-${Date.now()}`,title:overlap?'Enrollment Importer Idea':'Arts Equipment Replacement Cycle',type:'Idea',area:overlap?'Data / Analytics':'Finance & Budget',status:'Inbox',priority:'Later',impact:'High',effort:'Significant',ideaStage:'Spark',nextAction:overlap?'Compare against existing canonical importer.':'Explore overlap with inventory, Band Central, and FF&E planning.'};return <div className="modal-backdrop"><div className="modal"><div className="drawer-head"><div><span className="kicker">Quick capture</span><h2>What's on your mind?</h2></div><button onClick={onClose}>×</button></div>{!analyzed?<><textarea value={text} onChange={e=>setText(e.target.value)} placeholder="We need a better way to track when instruments should be replaced across schools."/><button className="primary wide" onClick={()=>setAnalyzed(true)} disabled={!text.trim()}>Analyze</button></>:overlap?<div className="proposal"><div className="duplicate-alert"><strong>Related existing work found</strong><h3>Arts Import & Reconciliation</h3><p>Your new idea appears to overlap substantially with the canonical importer already in Review.</p><div className="modal-actions"><button className="primary" onClick={()=>onOpenExisting('importer')}>Continue existing work</button><button onClick={()=>onSave(proposal)}>Create separate idea anyway</button></div></div></div>:<div className="proposal"><span className="kicker">Mock GPT-6.1 Sol proposal</span><h3>{proposal.title}</h3><div className="proposal-grid"><span>Type<b>{proposal.type}</b></span><span>Stage<b>{proposal.ideaStage}</b></span><span>Area<b>{proposal.area}</b></span><span>Status<b>{proposal.status}</b></span></div><p>This may relate to existing equipment planning rather than requiring a new project.</p><div className="related-box"><strong>Possible existing work</strong><span>Band Central Funding</span><span>FF&E Lessons Learned</span></div><div className="modal-actions"><button onClick={()=>setAnalyzed(false)}>Edit</button><button className="primary" onClick={()=>onSave(proposal)}>Save</button></div></div>}</div></div>}
+function Capture({items,saving,onClose,onSave,onOpenExisting}:{items:WorkItem[];saving:boolean;onClose:()=>void;onSave:(i:WorkItem,allowDuplicate?:boolean)=>Promise<boolean>;onOpenExisting:(id:string)=>void}){
+  const [text,setText]=useState('');
+  const [title,setTitle]=useState('');
+  const [review,setReview]=useState(false);
+  const [captureId]=useState(()=>crypto.randomUUID());
+  const dialogRef=useDialog<HTMLDivElement>(onClose);
+  const duplicates=items.filter(i=>normalizedTitle(i.title)===normalizedTitle(title));
+  const words=title.toLowerCase().split(/\W+/).filter(w=>w.length>3);
+  const related=items.filter(i=>!duplicates.includes(i)&&words.some(w=>i.title.toLowerCase().includes(w))).slice(0,4);
+  const proposal:WorkItem={id:captureId,title:title.trim(),notes:text.trim(),type:'Idea',area:'Unassigned',status:'Inbox',priority:'Later',impact:'Medium',effort:'Moderate',ideaStage:'Spark'};
+  return <div className="modal-backdrop"><div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Capture work" className="modal"><div className="drawer-head"><div><span className="kicker">Quick capture</span><h2>What's on your mind?</h2></div><button aria-label="Close capture" disabled={saving} onClick={onClose}>×</button></div>{!review?<><textarea aria-label="Capture notes" value={text} onChange={e=>setText(e.target.value)} placeholder="Describe the work or idea you want to capture."/><button className="primary wide" onClick={()=>{setTitle(text.trim().split('\n')[0].slice(0,300));setReview(true)}} disabled={!text.trim()}>Review capture</button></>:<div className="proposal"><label>Title<input aria-label="Capture title" maxLength={300} value={title} onChange={e=>setTitle(e.target.value)}/></label><p>Your full capture will be saved in Notes as an Inbox idea. You can classify it in the drawer.</p>{duplicates.length>0&&<div className="duplicate-alert"><strong>Matching title found</strong>{duplicates.map(i=><button key={i.id} disabled={saving} onClick={()=>onOpenExisting(i.id)}>{i.title}: open existing</button>)}</div>}{related.length>0&&<div className="related-box"><strong>Related titles to check</strong>{related.map(i=><button key={i.id} disabled={saving} onClick={()=>onOpenExisting(i.id)}>{i.title}</button>)}</div>}<div className="modal-actions"><button disabled={saving} onClick={()=>setReview(false)}>Edit notes</button><button className="primary" disabled={saving||!title.trim()} onClick={()=>onSave(proposal,duplicates.length>0)}>{saving?'Saving…':duplicates.length?'Create separate idea anyway':'Save capture'}</button></div></div>}</div></div>;
+}
+
+function useDialog<T extends HTMLElement = HTMLElement>(onClose:()=>void){
+  const ref=useRef<T|null>(null);
+  const closeRef=useRef(onClose);closeRef.current=onClose;
+  useEffect(()=>{
+    const previous=document.activeElement as HTMLElement|null;
+    const root=ref.current;
+    const controls=()=>Array.from(root?.querySelectorAll<HTMLElement>('button:not(:disabled),input,textarea,select,[tabindex="0"]')??[]);
+    controls()[0]?.focus();
+    function key(event:KeyboardEvent){
+      if(event.key==='Escape'){event.preventDefault();closeRef.current();}
+      if(event.key==='Tab'){
+        const nodes=controls(),first=nodes[0],last=nodes[nodes.length-1];
+        if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
+        else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+      }
+    }
+    document.addEventListener('keydown',key);
+    return()=>{document.removeEventListener('keydown',key);previous?.focus();};
+  },[]);
+  return ref;
+}
