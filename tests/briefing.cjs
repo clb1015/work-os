@@ -6,6 +6,7 @@ const Module=require('node:module');
 const ts=require('typescript');
 function load(file,mocks={}){
   const full=path.resolve(file),m=new Module(full,module);m.filename=full;m.paths=Module._nodeModulePaths(path.dirname(full));
+  mocks={'server-only':{},...mocks};
   const original=m.require.bind(m);m.require=name=>name in mocks?mocks[name]:original(name);
   m._compile(ts.transpileModule(fs.readFileSync(full,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,full);return m.exports;
 }
@@ -18,8 +19,8 @@ const serverReads=load('lib/work-read-server.ts');
 const row=(extra={})=>({id,user_id:owner,title:'Current work',status:'Active',type:'Project',priority:'Now',impact:'Medium',effort:'Quick',area:'Technology',next_action:'Review the saved results',target_date:null,notes:'PRIVATE NOTES SHOULD NOT BE SENT',updated_at:'2026-10-04T12:00:00Z',last_activity_at:'2026-10-04T12:00:00Z',metadata:{},...extra});
 const snapshot=(items=[row()],extra={})=>({userId:owner,items,relationships:[],tags:[],tagLinks:[],sources:[],sourceLinks:[],activity:[],...extra});
 const context=()=>briefing.buildBriefingContext(snapshot(),new Date('2026-10-05T16:00:00Z'));
-const recommendation=(extra={})=>({workItemId:id,reason:'Recorded Now priority supports reviewing this work.',nextStep:'Review the saved results.',evidenceIds:['now'],confidence:'medium',...extra});
-const generated=(entry=recommendation())=>({priorities:[entry],uncertainty:['Linked source file contents have not been read.']});
+const recommendation=(extra={})=>({category:'actionable_now',workItemId:id,reason:'Recorded Now priority supports reviewing this work.',nextStep:'Review the saved results.',evidenceIds:['actionable_now'],confidence:'medium',...extra});
+const generated=(entry=recommendation())=>({priorities:[entry],overlaps:[],uncertainty:['Linked source file contents have not been read.']});
 
 test('Owner-scoped snapshot reads filter every table, include bounded history, and never write',async()=>{
   const calls=[],client={from(table){const call={table,filters:[],limit:null};calls.push(call);const q={select(){return q},eq(k,v){call.filters.push([k,v]);return q},order(){return q},limit(n){call.limit=n;return q},then(resolve){return Promise.resolve({data:table==='work_items'?[row()]:[],error:null}).then(resolve)}};return q;}};
@@ -56,8 +57,8 @@ test('Briefing context ranks overdue, decisions and missing actions and bounds c
 test('Recommendation validation rejects invented, closed, duplicate and unsupported citations',()=>{
   const c=context();assert.deepEqual(briefing.validateBriefing(generated(),c),generated());
   for(const entry of [recommendation({workItemId:other}),recommendation({evidenceIds:['blocked']}),recommendation({evidenceIds:[]}),recommendation({evidenceIds:['now','now']}),recommendation({confidence:'certain'}),recommendation({reason:''}),recommendation({nextStep:'x'.repeat(501)}),{...recommendation(),execute:true}])assert.throws(()=>briefing.validateBriefing(generated(entry),c));
-  assert.throws(()=>briefing.validateBriefing({priorities:[recommendation(),recommendation()],uncertainty:[]},c));
-  assert.throws(()=>briefing.validateBriefing({priorities:[],uncertainty:[]},c));
+  assert.throws(()=>briefing.validateBriefing({priorities:[recommendation(),recommendation()],overlaps:[],uncertainty:[]},c));
+  assert.throws(()=>briefing.validateBriefing({priorities:[],overlaps:[],uncertainty:[]},c));
 });
 test('OpenAI request is bounded, stateless, tool-free, and treats record instructions as data',async()=>{
   const prev={key:process.env.OPENAI_API_KEY,enabled:process.env.WORK_OS_AI_ENABLED,fetch:global.fetch};
@@ -84,7 +85,7 @@ function route({user={id:owner},available=true,readError=false,generateError=fal
   const counts={reads:0,generate:0,released:0};const seed=snapshot();
   const api=load('app/api/daily-briefing/route.ts',{
     '@/lib/auth':{getAuthed:async()=>({user,supabase:{}})},
-    '@/lib/work-read-server':{readWorkSnapshot:async(_client,userId,history)=>{counts.reads++;assert.equal(userId,owner);assert.equal(history,true);if(readError)throw Error('db unavailable');return seed;}},
+    '@/lib/work-read-server':{readReasoningSnapshot:async(_client,userId)=>{counts.reads++;assert.equal(userId,owner);if(readError)throw Error('db unavailable');return seed;}},
     '@/lib/daily-briefing':briefing,
     '@/lib/briefing-provider':{aiBriefingAvailable:()=>available,generateBriefing:async c=>{counts.generate++;if(generateError)throw Error('private upstream error');return briefing.validateBriefing(generated(),c);}},
     '@/lib/briefing-limits':{claimBriefingRequest:()=>limit?()=>{counts.released++;}:null},
@@ -105,4 +106,53 @@ test('Failures are explicit, do not leak upstream details, and release generatio
   assert.equal((await route({readError:true}).api.GET()).status,500);
   for(const options of [{readError:true},{generateError:true}]){const {api,counts}=route(options),response=await api.POST(request());assert.equal(response.status,502);assert.ok(!JSON.stringify(await response.json()).includes('private upstream'));assert.equal(counts.released,1);}
   const limited=route({limit:false});const response=await limited.api.POST(request());assert.equal(response.status,429);assert.equal(limited.counts.reads,0);assert.equal(limited.counts.generate,0);
+});
+
+test('Attention sections distinguish actionable, blocked, Waiting, missing actions, stale and due work',()=>{
+  const c=briefing.buildBriefingContext(snapshot([
+    row(),row({id:'blocked'}),row({id:'waiting',status:'Waiting',last_activity_at:'2026-09-30T12:00:00Z',updated_at:'2026-09-30T12:00:00Z'}),
+    row({id:'fresh-wait',status:'Waiting'}),row({id:'missing',status:'Inbox',next_action:'   '}),
+    row({id:'old',priority:'Later',last_activity_at:'2026-09-01T12:00:00Z',updated_at:'2026-09-01T12:00:00Z'}),
+    row({id:'due',target_date:'2026-10-12'}),row({id:'far',target_date:'2026-10-13'}),row({id:'overdue',target_date:'2026-10-04'}),
+    row({id:'done',status:'Done',next_action:null,target_date:'2026-10-04'}),
+  ],{relationships:[{id:'edge',from_item_id:'blocked',to_item_id:id,relationship_type:'blocked_by'}]}),new Date('2026-10-05T16:00:00Z'));
+  assert.ok(c.categories.actionable_now.workItemIds.includes(id));assert.ok(!c.categories.actionable_now.workItemIds.includes('blocked'));assert.ok(!c.categories.actionable_now.workItemIds.includes('waiting'));
+  assert.deepEqual(c.categories.waiting_followup.workItemIds,['waiting']);assert.deepEqual(c.categories.missing_action.workItemIds,['missing']);assert.deepEqual(c.categories.stalled.workItemIds,['old']);
+  assert.deepEqual(c.categories.due_soon.workItemIds.sort(),['due','overdue']);assert.equal(c.counts.waiting,2);assert.equal(c.counts.open,9);
+});
+test('Recent activity history and updates prevent false stalled and follow-up recommendations',()=>{
+  const c=briefing.buildBriefingContext(snapshot([row({status:'Waiting',updated_at:'2026-09-01T12:00:00Z',last_activity_at:'2026-09-01T12:00:00Z'})],{activity:[{id:'history',work_item_id:id,action:'reviewed',created_at:'2026-10-05T12:00:00Z',details:{secret:'omit'}}]}),new Date('2026-10-05T16:00:00Z'));
+  assert.equal(c.categories.stalled.count,0);assert.equal(c.categories.waiting_followup.count,0);assert.ok(!JSON.stringify(c).includes('secret'));
+});
+test('Effort, why-now and missing impact remain recorded facts, and source paths are never exposed in reasoning DTO',()=>{
+  const c=briefing.buildBriefingContext(snapshot([row({effort:'Significant',impact:null,why_now:'Scheduled funding decision'})],{sources:[{id:'source',name:'Source',source_type:'OneDrive',location:'PRIVATE_LOCATION'}],sourceLinks:[{work_item_id:id,source_id:'source',is_primary:true}]}));
+  assert.equal(c.records[0].effort,'Significant');assert.equal(c.records[0].impact,null);assert.equal(c.records[0].whyNow,'Scheduled funding decision');assert.ok(!JSON.stringify(c).includes('PRIVATE_LOCATION'));
+});
+test('Bounded candidates reserve every nonempty attention category before ranking remaining work',()=>{
+  const rows=Array.from({length:40},(_,i)=>row({id:`urgent-${i}`,target_date:'2026-10-01'}));
+  rows.push(row({id:'follow-up',priority:'Later',status:'Waiting',updated_at:'2026-09-30T12:00:00Z',last_activity_at:'2026-09-30T12:00:00Z'}));
+  const c=briefing.buildBriefingContext(snapshot(rows),new Date('2026-10-05T16:00:00Z'));
+  assert.equal(c.records.length,20);assert.equal(c.omittedOpenItems,21);assert.equal(c.categories.due_soon.count,40);assert.ok(c.categories.waiting_followup.workItemIds.includes('follow-up'));
+});
+test('Overlap candidates cite two eligible records and distinguish capacity signals from duplicate evidence',()=>{
+  const c=briefing.buildBriefingContext(snapshot([row({title:'Studio equipment budget',effort:'Significant'}),row({id:other,title:'Studio equipment quotes',effort:'Significant'}),row({id:'closed',status:'Done',title:'Studio equipment budget'})]),new Date('2026-10-05T16:00:00Z'));
+  assert.equal(c.overlaps.length,1);assert.deepEqual(c.overlaps[0].workItemIds.sort(),[id,other]);assert.equal(c.overlaps[0].signals.length,2);
+  const output={priorities:[recommendation()],overlaps:[{candidateId:c.overlaps[0].id,reason:'Possible studio work overlap; Significant effort may compete.',nextStep:'Review scope and sequence before choosing.',confidence:'medium'}],uncertainty:[]};
+  assert.doesNotThrow(()=>briefing.validateBriefing(output,c));
+  assert.throws(()=>briefing.validateBriefing({...output,overlaps:[{...output.overlaps[0],candidateId:'invented'}]},c),/overlap citation/);
+  assert.throws(()=>briefing.validateBriefing({...output,overlaps:[output.overlaps[0],output.overlaps[0]]},c));
+});
+test('Structured validation requires each populated section and rejects category misclassification',()=>{
+  const c=briefing.buildBriefingContext(snapshot([row({target_date:'2026-10-05'})]),new Date('2026-10-05T16:00:00Z'));
+  assert.throws(()=>briefing.validateBriefing(generated(),c),/Missing briefing category/);
+  assert.throws(()=>briefing.validateBriefing(generated(recommendation({category:'waiting_followup'})),c),/category citation/);
+  assert.doesNotThrow(()=>briefing.validateBriefing({priorities:[recommendation(),recommendation({category:'due_soon',evidenceIds:['due_soon']})],overlaps:[],uncertainty:[]},c));
+  assert.deepEqual(briefing.validateBriefing({priorities:[],overlaps:[],uncertainty:[]},briefing.buildBriefingContext(snapshot([]))),{priorities:[],overlaps:[],uncertainty:[]});
+});
+test('Reasoning read boundary selects only needed fields and retains owner predicates on all seven tables',async()=>{
+  const calls=[],client={from(table){const call={table};calls.push(call);const q={select(columns){call.columns=columns;return q},eq(key,value){assert.equal(key,'user_id');assert.equal(value,owner);return q},order(){return q},limit(){return q},then(resolve){return Promise.resolve({data:[],error:null}).then(resolve)}};return q;}};
+  await serverReads.readReasoningSnapshot(client,owner);
+  assert.equal(calls.length,7);assert.ok(calls.every(call=>call.columns!=='*'));
+  assert.ok(!calls.some(call=>/notes|location|details|metadata/.test(call.columns)));
+  assert.match(calls.find(call=>call.table==='work_items').columns,/effort/);
 });

@@ -301,3 +301,10 @@ button.primary,.primary{background:linear-gradient(180deg,#1aaea2,#138c85)!impor
   .activity-list>div{align-items:flex-start;flex-wrap:wrap}
   .search-box input{min-width:0}
 }
+
+.briefing-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}
+.briefing-category{min-width:0;border:1px solid var(--line);border-radius:12px;padding:14px;overflow-wrap:anywhere}
+.briefing-category h3{font-size:15px;margin:0 0 10px}
+.briefing-category .briefing-signals{padding:0;margin:0}
+.briefing-category .briefing-signals li{margin:0 0 10px}
+@media(max-width:760px){.briefing-sections{grid-template-columns:1fr}}

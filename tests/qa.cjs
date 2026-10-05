@@ -7,6 +7,7 @@ const ts=require('typescript');
 function load(file,mocks={}){
   const full=path.resolve(file),m=new Module(full,module);
   m.filename=full;m.paths=Module._nodeModulePaths(path.dirname(full));
+  mocks={'server-only':{},...mocks};
   const original=m.require.bind(m);
   m.require=name=>name in mocks?mocks[name]:original(name);
   m._compile(ts.transpileModule(fs.readFileSync(full,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,full);
