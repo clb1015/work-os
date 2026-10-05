@@ -427,6 +427,14 @@ function Drawer({
 }){
   const [draft,setDraft]=useState<WorkItem>(item);
   const [saving,setSaving]=useState(false);
+  const saveButtonRef=useRef<HTMLButtonElement|null>(null);
+  const restoreSaveFocus=useRef(false);
+  useEffect(()=>{
+    if(!saving&&restoreSaveFocus.current){
+      restoreSaveFocus.current=false;
+      saveButtonRef.current?.focus();
+    }
+  },[saving]);
   const [tagName,setTagName]=useState('');
   const [relationshipTarget,setRelationshipTarget]=useState('');
   const [relationshipType,setRelationshipType]=useState('related');
@@ -439,6 +447,7 @@ function Drawer({
   const dialogRef=useDialog(onClose);
 
   async function save(){
+    restoreSaveFocus.current=true;
     setSaving(true);
     if(!draft.title.trim()){alert('A title is required.');setSaving(false);return;}
     await onPatch(item.id,{
@@ -557,7 +566,7 @@ function Drawer({
 
       <div className="drawer-savebar">
         <span>Changes save to Supabase and remain after refresh.</span>
-        <button className="primary" onClick={save} disabled={saving||loadingDetails||!!detailError}>{saving?'Saving…':'Save changes'}</button>
+        <button ref={saveButtonRef} className="primary" onClick={save} disabled={saving||loadingDetails||!!detailError}>{saving?'Saving…':'Save changes'}</button>
       </div>
     </aside>
   </div>
