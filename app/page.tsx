@@ -43,6 +43,19 @@ export default function Home() {
   const [itemDetails, setItemDetails] = useState<ItemDetails | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailRefresh, setDetailRefresh] = useState(0);
+  const [completion, setCompletion] = useState<{title:string;returnFocus:HTMLElement|null;resolve:(accepted:boolean)=>void}|null>(null);
+  const completionPending = useRef(false);
+
+  function confirmCompletion(title:string):Promise<boolean>{
+    if(completionPending.current) return Promise.resolve(false);
+    completionPending.current=true;
+    const returnFocus=document.activeElement as HTMLElement|null;
+    return new Promise(resolve=>setCompletion({title,returnFocus,resolve:accepted=>{
+      completionPending.current=false;
+      setCompletion(null);
+      resolve(accepted);
+    }}));
+  }
 
   async function apiPost<T=any>(body:Record<string,unknown>):Promise<T>{
     const response=await fetch('/api/work-items',{
@@ -156,34 +169,7 @@ export default function Home() {
 
   const metrics = useMemo(() => commandMetrics(items), [items]);
   async function moveItem(id:string,status:Status){
-    if(status==='Done'&&!confirm('Has the intended outcome actually been completed?')) return;
-    const previous=items.find(i=>i.id===id);
-    if(!previous) return;
-    const changedAt=new Date().toISOString();
-    const optimistic={...previous,status,lastActivityDays:0};
-    setItems(prev=>prev.map(i=>i.id===id?optimistic:i));
-    if(selected?.id===id) setSelected(optimistic);
-
-    try{
-      await apiPost({
-        op:'updateItem',
-        itemId:id,
-        patch:{
-          status,
-          last_activity_at:changedAt,
-          completed_at:status==='Done'?changedAt:null,
-          archived_at:status==='Archived'?changedAt:null,
-        },
-        activity:{action:'status_changed',details:{from:previous.status,to:status}},
-      });
-      setDetailRefresh(v=>v+1);
-      setReloadCount(v=>v+1);
-    }catch(error){
-      console.error(error);
-      setItems(prev=>prev.map(i=>i.id===id?previous:i));
-      if(selected?.id===id) setSelected(previous);
-      alert('That status change could not be saved.');
-    }
+    await patchItem(id,{status});
   }
 
   async function saveCapturedItem(item:WorkItem,allowDuplicate=false){
@@ -205,7 +191,7 @@ export default function Home() {
   async function patchItem(id:string,patch:Partial<WorkItem>){
     const previous=items.find(i=>i.id===id);
     if(!previous) return false;
-    if(patch.status==='Done'&&previous.status!=='Done'&&!confirm('Has the intended outcome actually been completed?')) return false;
+    if(patch.status==='Done'&&previous.status!=='Done'&&!await confirmCompletion(patch.title??previous.title)) return false;
     const optimistic={...previous,...patch,lastActivityDays:0};
     setItems(prev=>prev.map(i=>i.id===id?optimistic:i));
     if(selected?.id===id) setSelected(optimistic);
@@ -319,7 +305,7 @@ export default function Home() {
   }
 
   return (
-    <div className="app-shell">
+    <><div className="app-shell" inert={!!completion}>
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark">W</span><div><strong>Work OS</strong><small>Executive workspace</small></div></div>
         <nav>{views.map(v => <button key={v} className={view===v?'nav active':'nav'} onClick={() => setView(v)}><span className="nav-icon">{viewIcons[v]}</span><span>{v}</span></button>)}</nav>
@@ -358,7 +344,7 @@ export default function Home() {
         onRemoveSource={removeSource}
       />}
       {captureOpen && <Capture saving={captureSaving} items={items} onClose={()=>{if(!capturePending.current)setCaptureOpen(false)}} onSave={saveCapturedItem} onOpenExisting={(id)=>{const found=items.find(i=>i.legacyId===id||i.id===id); if(found){setSelected(found);setCaptureOpen(false)}}} />}
-    </div>
+    </div>{completion&&<CompletionDialog title={completion.title} returnFocus={completion.returnFocus} onDecide={completion.resolve}/>}</>
   );
 }
 
@@ -441,6 +427,14 @@ function Drawer({
 }){
   const [draft,setDraft]=useState<WorkItem>(item);
   const [saving,setSaving]=useState(false);
+  const saveButtonRef=useRef<HTMLButtonElement|null>(null);
+  const restoreSaveFocus=useRef(false);
+  useEffect(()=>{
+    if(!saving&&restoreSaveFocus.current){
+      restoreSaveFocus.current=false;
+      saveButtonRef.current?.focus();
+    }
+  },[saving]);
   const [tagName,setTagName]=useState('');
   const [relationshipTarget,setRelationshipTarget]=useState('');
   const [relationshipType,setRelationshipType]=useState('related');
@@ -453,6 +447,7 @@ function Drawer({
   const dialogRef=useDialog(onClose);
 
   async function save(){
+    restoreSaveFocus.current=true;
     setSaving(true);
     if(!draft.title.trim()){alert('A title is required.');setSaving(false);return;}
     await onPatch(item.id,{
@@ -571,7 +566,7 @@ function Drawer({
 
       <div className="drawer-savebar">
         <span>Changes save to Supabase and remain after refresh.</span>
-        <button className="primary" onClick={save} disabled={saving||loadingDetails||!!detailError}>{saving?'Saving…':'Save changes'}</button>
+        <button ref={saveButtonRef} className="primary" onClick={save} disabled={saving||loadingDetails||!!detailError}>{saving?'Saving…':'Save changes'}</button>
       </div>
     </aside>
   </div>
@@ -581,6 +576,16 @@ function EditableDetail({label,value,onChange,multiline=false}:{label:string;val
   return <div className="detail editable-detail"><span>{label}</span>{multiline
     ?<textarea aria-label={label} value={value||''} onChange={e=>onChange(e.target.value||undefined)} rows={3}/>
     :<input aria-label={label} value={value||''} onChange={e=>onChange(e.target.value||undefined)}/>}</div>
+}
+
+function CompletionDialog({title,returnFocus,onDecide}:{title:string;returnFocus:HTMLElement|null;onDecide:(accepted:boolean)=>void}){
+  const dialogRef=useDialog<HTMLDivElement>(()=>onDecide(false),returnFocus);
+  return <div className="modal-backdrop completion-backdrop"><div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="completion-title" aria-describedby="completion-description" className="modal completion-modal">
+    <h2 id="completion-title">Mark work complete?</h2>
+    <p className="completion-item">{title}</p>
+    <p id="completion-description">Has the intended outcome actually been completed? Confirm to save this work as Done.</p>
+    <div className="modal-actions"><button onClick={()=>onDecide(false)}>Keep working</button><button className="primary" onClick={()=>onDecide(true)}>Mark complete</button></div>
+  </div></div>;
 }
 
 function Capture({items,saving,onClose,onSave,onOpenExisting}:{items:WorkItem[];saving:boolean;onClose:()=>void;onSave:(i:WorkItem,allowDuplicate?:boolean)=>Promise<boolean>;onOpenExisting:(id:string)=>void}){
@@ -596,15 +601,16 @@ function Capture({items,saving,onClose,onSave,onOpenExisting}:{items:WorkItem[];
   return <div className="modal-backdrop"><div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Capture work" className="modal"><div className="drawer-head"><div><span className="kicker">Quick capture</span><h2>What's on your mind?</h2></div><button aria-label="Close capture" disabled={saving} onClick={onClose}>×</button></div>{!review?<><textarea aria-label="Capture notes" value={text} onChange={e=>setText(e.target.value)} placeholder="Describe the work or idea you want to capture."/><button className="primary wide" onClick={()=>{setTitle(text.trim().split('\n')[0].slice(0,300));setReview(true)}} disabled={!text.trim()}>Review capture</button></>:<div className="proposal"><label>Title<input aria-label="Capture title" maxLength={300} value={title} onChange={e=>setTitle(e.target.value)}/></label><p>Your full capture will be saved in Notes as an Inbox idea. You can classify it in the drawer.</p>{duplicates.length>0&&<div className="duplicate-alert"><strong>Matching title found</strong>{duplicates.map(i=><button key={i.id} disabled={saving} onClick={()=>onOpenExisting(i.id)}>{i.title}: open existing</button>)}</div>}{related.length>0&&<div className="related-box"><strong>Related titles to check</strong>{related.map(i=><button key={i.id} disabled={saving} onClick={()=>onOpenExisting(i.id)}>{i.title}</button>)}</div>}<div className="modal-actions"><button disabled={saving} onClick={()=>setReview(false)}>Edit notes</button><button className="primary" disabled={saving||!title.trim()} onClick={()=>onSave(proposal,duplicates.length>0)}>{saving?'Saving…':duplicates.length?'Create separate idea anyway':'Save capture'}</button></div></div>}</div></div>;
 }
 
-function useDialog<T extends HTMLElement = HTMLElement>(onClose:()=>void){
+function useDialog<T extends HTMLElement = HTMLElement>(onClose:()=>void,returnFocus?:HTMLElement|null){
   const ref=useRef<T|null>(null);
   const closeRef=useRef(onClose);closeRef.current=onClose;
   useEffect(()=>{
-    const previous=document.activeElement as HTMLElement|null;
+    const previous=returnFocus??document.activeElement as HTMLElement|null;
     const root=ref.current;
     const controls=()=>Array.from(root?.querySelectorAll<HTMLElement>('button:not(:disabled),input,textarea,select,[tabindex="0"]')??[]);
     controls()[0]?.focus();
     function key(event:KeyboardEvent){
+      if(root?.closest('[inert]')) return;
       if(event.key==='Escape'){event.preventDefault();closeRef.current();}
       if(event.key==='Tab'){
         const nodes=controls(),first=nodes[0],last=nodes[nodes.length-1];
@@ -613,7 +619,7 @@ function useDialog<T extends HTMLElement = HTMLElement>(onClose:()=>void){
       }
     }
     document.addEventListener('keydown',key);
-    return()=>{document.removeEventListener('keydown',key);previous?.focus();};
+    return()=>{document.removeEventListener('keydown',key);requestAnimationFrame(()=>{if(previous?.isConnected) previous.focus();});};
   },[]);
   return ref;
 }

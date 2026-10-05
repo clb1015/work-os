@@ -26,7 +26,7 @@ Audit date: October 4, 2026. Canonical repository, deployment and Supabase proje
 
 ## Remaining issues
 
-- Release is blocked pending user approval to merge the reviewable PR and publish the canonical production deployment. Post-fix production acceptance must follow that deployment.
+- PR #1 was approved, merged and deployed October 4 at `eeb067e`. Authenticated desktop acceptance confirmed Capture, duplicate detection, persisted drawer edits, tags, all six relationships, primary sources and logout. Temporary fixtures were removed and the original 17-item inventory restored. PR #2 follows up on completion confirmation and phone-width verification.
 
 - Primary-source changes and activity writes are multiple requests, not a database transaction. Failures are surfaced and primary switching has compensation, but simultaneous tabs and partial outages can still cause inconsistent state. Use narrowly scoped SECURITY INVOKER database functions with ownership checks and row locks before AI-assisted writes.
 - Exact-title comparison across different Capture IDs is advisory and can race between tabs. Stable-ID retry protection is atomic via the existing primary key. Deliberate same-title items remain supported.
@@ -70,5 +70,14 @@ Not ready for autonomous AI writes. A constrained read-only reasoning pilot is t
 - Production acceptance on existing main verified: sign-in, logout and redirect to login when revisiting the protected route; Board area/type filters; status movement into Waiting and Completed; drawer title/action/notes edits; Idea Explore/Park/Commit; tags add/remove; all six relationship types added; one edge removed while five others remained in Supabase; sources add/remove, primary switching and replacement; history records; reload persistence; Projects, Search, Workflows and registry views. Temporary fixtures and their associated rows were removed. Baseline inventory restored to 17.
 - Original Workflows view showed canned progress despite zero workflow definitions/runs. That misleading progress is removed in the PR.
 - Production runtime error query reported no errors during the QA window.
-- Post-fix authenticated browser acceptance, real expired-token refresh and mobile viewport verification are still pending. Native credential protection restricted DOM/console inspection after secure sign-in; accessible UI and direct database verification remained available. Enlarged-zoom key presses did not change the viewport, so they are not counted as mobile testing.
-- Automatic approval review rejected a direct push to main: it considered the default-branch mutation unauthorized and asked for a safer branch/PR. The fixes are on `qa/production-readiness-2026-10-04` in draft PR #1, awaiting explicit user approval to merge/publish. Production and main remain synchronized at `4a91a3f`; fixes are not yet in production.
+- Post-fix authenticated acceptance passed on October 4 and the completion/phone follow-up passed October 5. Real expired-token refresh remains unverified in a live browser; injected expired-session and cookie-refresh regressions pass. Phone evidence uses actual iframe CSS viewports, not browser zoom or device emulation.
+- PR #1 was explicitly approved, merged and deployed at `eeb067e`. PR #2 contains the completion/phone follow-up on `fix/completion-mobile-2026-10-05`; production remains on PR #1 until this follow-up is merged.
+
+## October 5 follow-up: completion and phone layouts
+
+- Replaced native browser completion prompts with an accessible in-app dialog shared by Board and drawer saves. Keep working and Escape return without mutation; explicit Mark complete saves through the existing server API. Background is inert, focus stays in the confirmation, and focus restoration retains the triggering control.
+- Authenticated preview checks confirmed cancelling and Escape left the item Active, title unchanged, completed_at null and no history entry. Explicit acceptance saved Done and a server completion timestamp.
+- True iframe CSS viewports exposed drawer overflow from a 92-character tag and 162-character source name. Wrapping fixes removed both overflows. Authenticated checks passed at nominal frame widths 320, 375 and 430 pixels; actual layout widths account for scrollbars. Board, Capture and Search also fit 320, 375, 768 and 1280 pixel frames. Board columns scroll within their container without widening the page. These are CSS viewport checks, not touch-device emulation.
+- Cancellation and Escape restore focus to the re-enabled drawer Save button. Tab/Shift+Tab stay within confirmation. Board and drawer acceptance save Done; reopening clears the server completion timestamp. Supabase checks verified cancellation left stored fields/history unchanged.
+- Regression suite: 15/15 passed. Production build and TypeScript passed. Disposable fixture, tag, source and associated rows were removed; original 17 work items remain.
+- The temporary protected viewport verification route was removed from the final release tree. Production authentication, RLS, data APIs and credentials are unchanged.
