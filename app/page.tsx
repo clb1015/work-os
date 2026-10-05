@@ -5,6 +5,8 @@ import { areas } from '@/lib/config';
 import { commandMetrics, needsAttention, normalizedTitle, relationshipLabel } from '@/lib/work-logic';
 import { Status, WorkItem } from '@/lib/types';
 import { workItemFromRow, workItemInsert, workItemPatch } from '@/lib/work-items';
+import { itemsFromSnapshot, type WorkSnapshot, type WorkDetailsResponse, type ItemMutationResponse, type SourceMutationResponse } from '@/lib/work-read';
+import DailyBriefing from '@/components/daily-briefing';
 
 type View = 'Command Center' | 'Board' | 'Projects' | 'Ideas' | 'Workflows' | 'Dashboards & Tools' | 'Waiting' | 'Completed' | 'Search';
 const views: View[] = ['Command Center','Board','Projects','Ideas','Workflows','Dashboards & Tools','Waiting','Completed','Search'];
@@ -57,7 +59,7 @@ export default function Home() {
     }}));
   }
 
-  async function apiPost<T=any>(body:Record<string,unknown>):Promise<T>{
+  async function apiPost<T extends {warning?:string}={warning?:string}>(body:Record<string,unknown>):Promise<T>{
     const response=await fetch('/api/work-items',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -81,39 +83,10 @@ export default function Home() {
         const response=await fetch('/api/work-items',{cache:'no-store'});
         if(response.status===401){window.location.assign('/login?error=session-expired');return;}
         if(!response.ok) throw new Error('Work OS could not load your data. Please retry.');
-        const payload=await response.json();
+        const payload:WorkSnapshot=await response.json();
         if(cancelled) return;
-
         setUserId(payload.userId);
-        const baseItems=(payload.items??[]).map((row:any)=>workItemFromRow(row));
-        const titleById=new Map(baseItems.map((item:WorkItem)=>[item.id,item.title]));
-        const tagNameById=new Map((payload.tags??[]).map((tag:any)=>[tag.id,tag.name]));
-        const sourceNameById=new Map((payload.sources??[]).map((source:any)=>[source.id,source.name]));
-        const tagsByItem=new Map<string,string[]>();
-        const sourcesByItem=new Map<string,string>();
-        const relatedByItem=new Map<string,string[]>();
-
-        for(const link of payload.tagLinks??[]){
-          const name=tagNameById.get(link.tag_id) as string|undefined;
-          if(name) tagsByItem.set(link.work_item_id,[...(tagsByItem.get(link.work_item_id)??[]),name]);
-        }
-        for(const link of payload.sourceLinks??[]){
-          const name=sourceNameById.get(link.source_id) as string|undefined;
-          if(name&&(link.is_primary||!sourcesByItem.has(link.work_item_id))) sourcesByItem.set(link.work_item_id,name);
-        }
-        for(const relationship of payload.relationships??[]){
-          const fromTitle=titleById.get(relationship.from_item_id) as string|undefined;
-          const toTitle=titleById.get(relationship.to_item_id) as string|undefined;
-          if(toTitle) relatedByItem.set(relationship.from_item_id,[...(relatedByItem.get(relationship.from_item_id)??[]),toTitle]);
-          if(fromTitle) relatedByItem.set(relationship.to_item_id,[...(relatedByItem.get(relationship.to_item_id)??[]),fromTitle]);
-        }
-
-        setItems(baseItems.map((item:WorkItem)=>({
-          ...item,
-          tags:tagsByItem.get(item.id),
-          source:sourcesByItem.get(item.id),
-          relatedItems:relatedByItem.get(item.id),
-        })));
+        setItems(itemsFromSnapshot(payload));
         setDataError('');
       }catch(error){
         if(!cancelled){
@@ -138,20 +111,20 @@ export default function Home() {
       setItemDetails(null);
       setDetailError('');
       try{
-        const payload=await apiPost<any>({op:'details',itemId});
+        const payload=await apiPost<WorkDetailsResponse>({op:'details',itemId});
         if(cancelled) return;
-        const relatedById=new Map((payload.related??[]).map((row:any)=>[row.id,row.title]));
-        const sourceLinkById=new Map((payload.sourceLinks??[]).map((row:any)=>[row.source_id,row.is_primary]));
+        const relatedById=new Map((payload.related??[]).map((row)=>[row.id,row.title]));
+        const sourceLinkById=new Map((payload.sourceLinks??[]).map((row)=>[row.source_id,row.is_primary]));
         setItemDetails({
-          relationships:(payload.relationships??[]).map((row:any)=>{
+          relationships:(payload.relationships??[]).map((row)=>{
             const otherId=row.from_item_id===itemId?row.to_item_id:row.from_item_id;
             return {edgeId:row.id,id:otherId,title:relatedById.get(otherId)??'Related work',relationshipType:relationshipLabel(row.relationship_type,row.from_item_id===itemId)};
           }),
-          tags:(payload.tags??[]).map((row:any)=>({id:row.id,name:row.name})),
-          sources:(payload.sources??[]).map((row:any)=>({
+          tags:(payload.tags??[]).map((row)=>({id:row.id,name:row.name})),
+          sources:(payload.sources??[]).map((row)=>({
             id:row.id,name:row.name,sourceType:row.source_type,location:row.location??undefined,isPrimary:sourceLinkById.get(row.id)??false,
           })),
-          activity:(payload.activity??[]).map((row:any)=>({
+          activity:(payload.activity??[]).map((row)=>({
             id:row.id,action:row.action,details:row.details??{},createdAt:row.created_at,
           })),
         });
@@ -176,7 +149,7 @@ export default function Home() {
     if(capturePending.current) return false;
     capturePending.current=true;setCaptureSaving(true);
     try{
-      const payload=await apiPost<any>({op:'createItem',row:{...workItemInsert(item,userId),id:item.id},allowDuplicate});
+      const payload=await apiPost<ItemMutationResponse>({op:'createItem',row:{...workItemInsert(item,userId),id:item.id},allowDuplicate});
       const saved=workItemFromRow(payload.item);
       setItems(prev=>[saved,...prev.filter(i=>i.id!==saved.id)]);
       setCaptureOpen(false);
@@ -196,7 +169,7 @@ export default function Home() {
     setItems(prev=>prev.map(i=>i.id===id?optimistic:i));
     if(selected?.id===id) setSelected(optimistic);
     try{
-      const payload=await apiPost<any>({
+      const payload=await apiPost<ItemMutationResponse>({
         op:'updateItem',
         itemId:id,
         patch:workItemPatch(patch),
@@ -275,7 +248,7 @@ export default function Home() {
     const name=rawName.trim();
     if(!name) return false;
     try{
-      const payload=await apiPost<any>({op:'addSource',itemId:workItemId,name,sourceType,location:rawLocation.trim()});
+      const payload=await apiPost<SourceMutationResponse>({op:'addSource',itemId:workItemId,name,sourceType,location:rawLocation.trim()});
       if(payload.isPrimary) setItems(prev=>prev.map(item=>item.id===workItemId?{...item,source:name}:item));
       setDetailRefresh(v=>v+1);
       setReloadCount(v=>v+1);
@@ -294,7 +267,7 @@ export default function Home() {
 
   async function removeSource(workItemId:string,sourceId:string,sourceName:string,wasPrimary:boolean){
     try{
-      const payload=await apiPost<any>({op:'removeSource',itemId:workItemId,sourceId,sourceName,wasPrimary});
+      const payload=await apiPost<SourceMutationResponse>({op:'removeSource',itemId:workItemId,sourceId,sourceName,wasPrimary});
       const replacement=wasPrimary&&payload.replacementSourceId
         ?itemDetails?.sources.find(source=>source.id===payload.replacementSourceId)?.name
         :undefined;
@@ -314,7 +287,7 @@ export default function Home() {
       <main className="main">
         <header className="topbar"><div className="topbar-title"><strong>Work OS</strong><span>{view}</span></div><div className="top-actions"><button className="ghost" onClick={() => setView('Search')}>⌕ Search</button><form action="/auth/signout" method="post"><button className="ghost" type="submit">Sign out</button></form><button className="primary" disabled={loadingData||!!dataError} onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
         <section className="content">{loadingData && <div className="data-state" role="status">Loading your Work OS…</div>}{dataError && <div className="data-state error" role="alert">{dataError} <button onClick={()=>setReloadCount(v=>v+1)}>Retry</button></div>}{dataWarning && <div className="data-state error" role="alert">{dataWarning} <button onClick={()=>setDataWarning('')}>Dismiss</button></div>}{!loadingData&&!dataError&&<>
-          {view === 'Command Center' && <CommandCenter items={items} metrics={metrics} onOpen={setSelected} />}
+          {view === 'Command Center' && <><DailyBriefing revision={reloadCount} onOpen={id=>{const item=items.find(i=>i.id===id);if(item)setSelected(item);}}/><CommandCenter items={items} metrics={metrics} onOpen={setSelected} /></>}
           {view === 'Board' && <Board items={items} areaFilter={areaFilter} setAreaFilter={setAreaFilter} typeFilter={typeFilter} setTypeFilter={setTypeFilter} onOpen={setSelected} onMove={moveItem} />}
           {view === 'Projects' && <ListView title="Projects" items={items.filter(i=>i.type==='Project')} onOpen={setSelected} />}
           {view === 'Ideas' && <Ideas items={items} onPatch={patchItem} onOpen={setSelected} />}

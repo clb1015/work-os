@@ -22,7 +22,19 @@ npm run dev
 
 The browser uses `/api/work-items` with the authenticated server cookie session. Verified claims and the one authorized user ID protect pages and the API. Supabase RLS remains enabled. Sign-in/sign-out use server handlers; proxy refreshes sessions and preserves refreshed cookies on redirects.
 
-Capture preserves original notes, lets the user choose a title, checks existing titles, and assigns a stable UUID so retries cannot create a second item. Related-title suggestions are deterministic. Exact title matches can be overridden deliberately. There is no implemented AI reasoning layer.
+Capture preserves original notes, lets the user choose a title, checks existing titles, and assigns a stable UUID so retries cannot create a second item. Related-title suggestions are deterministic. Exact title matches can be overridden deliberately.
+
+## Daily review pilot
+
+Command Center has an on-demand daily review backed by `/api/daily-briefing`. GET returns owner-scoped work signals without contacting a model. POST can generate cited recommendations through the server-only OpenAI Responses API when `WORK_OS_AI_ENABLED=true` and a server `OPENAI_API_KEY` exist. It is disabled by default. Never set a `NEXT_PUBLIC_` AI key.
+
+The review considers up to 20 ranked open records, excludes Done/Archived and parked ideas, distinguishes Waiting from explicit blocking relationships, and evaluates target dates in America/New_York. Every AI recommendation must cite a retrieved work item and its recorded evidence. Recommendations open the existing drawer for user review. No work mutation, proposal persistence, automation, embeddings, external browsing or source-file reading is available to the model.
+
+Model context excludes free-form Notes, activity details and source URLs/paths. It includes bounded work summaries, tags, relationships, source names/types and recent activity actions. Linked sources are pointers, not evidence of contents read. Generated suggestions can still be mistaken; the UI separates them from recorded facts.
+
+The default model is `gpt-6.1-sol`, verified against official documentation on October 5, 2026. `OPENAI_BRIEFING_MODEL` is server-controlled. Requests use structured output, `store:false`, a 25-second timeout and a 4,000 output-token limit. A per-instance guard allows one active generation, a 30-second cooldown and 10 attempts per hour. It is not a distributed rate limit or a global billing cap. A durable shared usage gate is needed before expanding the pilot beyond the current owner. No prompts, model outputs or credentials are logged or persisted.
+
+Secure key configuration, real-model evaluation and authenticated browser/session-refresh acceptance are release gates for enabling the AI pilot. Unit tests use injected model responses; passing them does not establish live model quality or account access.
 
 Work Items, tags, relationships, sources and history come from Supabase. Workflows currently show workflow Work Items, not execution runs. `workflow_definitions`, `workflow_runs`, and `ai_proposals` are reserved database structures; no automation or AI behavior is implied by their presence.
 

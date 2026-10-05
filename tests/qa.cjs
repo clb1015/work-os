@@ -60,7 +60,7 @@ function database(seed={},failure){
     }};return q;
   }};return {client,tables};
 }
-function api(db,user={id:owner}){return load('app/api/work-items/route.ts',{'@/lib/auth':{getAuthed:async()=>({supabase:db.client,user})},'@/lib/work-logic':logic});}
+function api(db,user={id:owner}){return load('app/api/work-items/route.ts',{'@/lib/auth':{getAuthed:async()=>({supabase:db.client,user})},'@/lib/work-logic':logic,'@/lib/work-read-server':load('lib/work-read-server.ts')});}
 const post=(a,body,origin='https://work-os-gray.vercel.app')=>a.POST(new Request('https://work-os-gray.vercel.app/api/work-items',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify(body)}));
 test('Anonymous access is denied and cross-origin mutation is rejected',async()=>{
   const db=database();assert.equal((await api(db,null).GET()).status,401);

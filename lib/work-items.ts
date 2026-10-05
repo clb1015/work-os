@@ -1,6 +1,6 @@
 import type { WorkItem } from './types';
 
-type WorkItemRow = {
+export type WorkItemRow = {
   id: string;
   title: string;
   type: WorkItem['type'];
@@ -23,12 +23,12 @@ type WorkItemRow = {
   metadata: Record<string, unknown> | null;
 };
 
-export function workItemFromRow(row: WorkItemRow): WorkItem {
+export function workItemFromRow(row: WorkItemRow, now = new Date()): WorkItem {
   const metadata = row.metadata ?? {};
   const activityAt = row.last_activity_at || row.updated_at;
   const lastActivityDays = Math.max(
     0,
-    Math.floor((Date.now() - new Date(activityAt).getTime()) / 86_400_000)
+    Math.floor((now.getTime() - new Date(activityAt).getTime()) / 86_400_000)
   );
 
   return {
