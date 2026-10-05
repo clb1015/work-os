@@ -26,7 +26,7 @@ Audit date: October 4, 2026. Canonical repository, deployment and Supabase proje
 
 ## Remaining issues
 
-- Release is blocked pending user approval to merge the reviewable PR and publish the canonical production deployment. Post-fix production acceptance must follow that deployment.
+- PR #1 was approved, merged and deployed October 4 at `eeb067e`. Authenticated desktop acceptance confirmed Capture, duplicate detection, persisted drawer edits, tags, all six relationships, primary sources and logout. Temporary fixtures were removed and the original 17-item inventory restored. PR #2 follows up on completion confirmation and phone-width verification.
 
 - Primary-source changes and activity writes are multiple requests, not a database transaction. Failures are surfaced and primary switching has compensation, but simultaneous tabs and partial outages can still cause inconsistent state. Use narrowly scoped SECURITY INVOKER database functions with ownership checks and row locks before AI-assisted writes.
 - Exact-title comparison across different Capture IDs is advisory and can race between tabs. Stable-ID retry protection is atomic via the existing primary key. Deliberate same-title items remain supported.
@@ -72,3 +72,10 @@ Not ready for autonomous AI writes. A constrained read-only reasoning pilot is t
 - Production runtime error query reported no errors during the QA window.
 - Post-fix authenticated browser acceptance, real expired-token refresh and mobile viewport verification are still pending. Native credential protection restricted DOM/console inspection after secure sign-in; accessible UI and direct database verification remained available. Enlarged-zoom key presses did not change the viewport, so they are not counted as mobile testing.
 - Automatic approval review rejected a direct push to main: it considered the default-branch mutation unauthorized and asked for a safer branch/PR. The fixes are on `qa/production-readiness-2026-10-04` in draft PR #1, awaiting explicit user approval to merge/publish. Production and main remain synchronized at `4a91a3f`; fixes are not yet in production.
+
+## October 5 follow-up: completion and phone layouts
+
+- Replaced native browser completion prompts with an accessible in-app dialog shared by Board and drawer saves. Keep working and Escape return without mutation; explicit Mark complete saves through the existing server API. Background is inert, focus stays in the confirmation, and focus restoration retains the triggering control.
+- Authenticated preview checks confirmed cancelling and Escape left the item Active, title unchanged, completed_at null and no history entry. Explicit acceptance saved Done and a server completion timestamp.
+- True iframe CSS viewports exposed drawer overflow from long tag/source names. Added wrapping and touch-target improvements. Final width checks and release evidence will be recorded before publishing.
+- The viewport verification route is temporary and must be removed before merge. Production authentication, RLS, data APIs and credentials are unchanged.

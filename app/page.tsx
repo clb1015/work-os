@@ -43,13 +43,14 @@ export default function Home() {
   const [itemDetails, setItemDetails] = useState<ItemDetails | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailRefresh, setDetailRefresh] = useState(0);
-  const [completion, setCompletion] = useState<{title:string;resolve:(accepted:boolean)=>void}|null>(null);
+  const [completion, setCompletion] = useState<{title:string;returnFocus:HTMLElement|null;resolve:(accepted:boolean)=>void}|null>(null);
   const completionPending = useRef(false);
 
   function confirmCompletion(title:string):Promise<boolean>{
     if(completionPending.current) return Promise.resolve(false);
     completionPending.current=true;
-    return new Promise(resolve=>setCompletion({title,resolve:accepted=>{
+    const returnFocus=document.activeElement as HTMLElement|null;
+    return new Promise(resolve=>setCompletion({title,returnFocus,resolve:accepted=>{
       completionPending.current=false;
       setCompletion(null);
       resolve(accepted);
@@ -343,7 +344,7 @@ export default function Home() {
         onRemoveSource={removeSource}
       />}
       {captureOpen && <Capture saving={captureSaving} items={items} onClose={()=>{if(!capturePending.current)setCaptureOpen(false)}} onSave={saveCapturedItem} onOpenExisting={(id)=>{const found=items.find(i=>i.legacyId===id||i.id===id); if(found){setSelected(found);setCaptureOpen(false)}}} />}
-    </div>{completion&&<CompletionDialog title={completion.title} onDecide={completion.resolve}/>}</>
+    </div>{completion&&<CompletionDialog title={completion.title} returnFocus={completion.returnFocus} onDecide={completion.resolve}/>}</>
   );
 }
 
@@ -568,8 +569,8 @@ function EditableDetail({label,value,onChange,multiline=false}:{label:string;val
     :<input aria-label={label} value={value||''} onChange={e=>onChange(e.target.value||undefined)}/>}</div>
 }
 
-function CompletionDialog({title,onDecide}:{title:string;onDecide:(accepted:boolean)=>void}){
-  const dialogRef=useDialog<HTMLDivElement>(()=>onDecide(false));
+function CompletionDialog({title,returnFocus,onDecide}:{title:string;returnFocus:HTMLElement|null;onDecide:(accepted:boolean)=>void}){
+  const dialogRef=useDialog<HTMLDivElement>(()=>onDecide(false),returnFocus);
   return <div className="modal-backdrop completion-backdrop"><div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="completion-title" aria-describedby="completion-description" className="modal completion-modal">
     <h2 id="completion-title">Mark work complete?</h2>
     <p className="completion-item">{title}</p>
@@ -591,11 +592,11 @@ function Capture({items,saving,onClose,onSave,onOpenExisting}:{items:WorkItem[];
   return <div className="modal-backdrop"><div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Capture work" className="modal"><div className="drawer-head"><div><span className="kicker">Quick capture</span><h2>What's on your mind?</h2></div><button aria-label="Close capture" disabled={saving} onClick={onClose}>×</button></div>{!review?<><textarea aria-label="Capture notes" value={text} onChange={e=>setText(e.target.value)} placeholder="Describe the work or idea you want to capture."/><button className="primary wide" onClick={()=>{setTitle(text.trim().split('\n')[0].slice(0,300));setReview(true)}} disabled={!text.trim()}>Review capture</button></>:<div className="proposal"><label>Title<input aria-label="Capture title" maxLength={300} value={title} onChange={e=>setTitle(e.target.value)}/></label><p>Your full capture will be saved in Notes as an Inbox idea. You can classify it in the drawer.</p>{duplicates.length>0&&<div className="duplicate-alert"><strong>Matching title found</strong>{duplicates.map(i=><button key={i.id} disabled={saving} onClick={()=>onOpenExisting(i.id)}>{i.title}: open existing</button>)}</div>}{related.length>0&&<div className="related-box"><strong>Related titles to check</strong>{related.map(i=><button key={i.id} disabled={saving} onClick={()=>onOpenExisting(i.id)}>{i.title}</button>)}</div>}<div className="modal-actions"><button disabled={saving} onClick={()=>setReview(false)}>Edit notes</button><button className="primary" disabled={saving||!title.trim()} onClick={()=>onSave(proposal,duplicates.length>0)}>{saving?'Saving…':duplicates.length?'Create separate idea anyway':'Save capture'}</button></div></div>}</div></div>;
 }
 
-function useDialog<T extends HTMLElement = HTMLElement>(onClose:()=>void){
+function useDialog<T extends HTMLElement = HTMLElement>(onClose:()=>void,returnFocus?:HTMLElement|null){
   const ref=useRef<T|null>(null);
   const closeRef=useRef(onClose);closeRef.current=onClose;
   useEffect(()=>{
-    const previous=document.activeElement as HTMLElement|null;
+    const previous=returnFocus??document.activeElement as HTMLElement|null;
     const root=ref.current;
     const controls=()=>Array.from(root?.querySelectorAll<HTMLElement>('button:not(:disabled),input,textarea,select,[tabindex="0"]')??[]);
     controls()[0]?.focus();
