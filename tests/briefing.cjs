@@ -156,3 +156,30 @@ test('Reasoning read boundary selects only needed fields and retains owner predi
   assert.ok(!calls.some(call=>/notes|location|details|metadata/.test(call.columns)));
   assert.match(calls.find(call=>call.table==='work_items').columns,/effort/);
 });
+
+test('Blocked and Review sections use recorded facts and exclude Waiting-only and closed work',()=>{
+  const c=briefing.buildBriefingContext(snapshot([
+    row(),row({id:'blocked',priority:'Later'}),row({id:'decision',status:'Review',priority:'Later'}),
+    row({id:'waiting-only',status:'Waiting',priority:'Later'}),row({id:'closed-review',status:'Done'}),
+  ],{relationships:[{id:'edge',from_item_id:'blocked',to_item_id:id,relationship_type:'blocked_by'}]}),new Date('2026-10-05T16:00:00Z'));
+  assert.deepEqual(c.categories.blocked.workItemIds,['blocked']);
+  assert.deepEqual(c.categories.review.workItemIds,['decision']);
+  assert.equal(c.categories.blocked.count,1);assert.equal(c.categories.review.count,1);
+  const result={priorities:[recommendation(),recommendation({category:'blocked',workItemId:'blocked',evidenceIds:['blocked']}),recommendation({category:'review',workItemId:'decision',evidenceIds:['review']})],overlaps:[],uncertainty:[]};
+  assert.doesNotThrow(()=>briefing.validateBriefing(result,c));
+  assert.throws(()=>briefing.validateBriefing({...result,priorities:result.priorities.filter(p=>p.category!=='blocked')},c),/Missing briefing category/);
+  assert.throws(()=>briefing.validateBriefing({...result,priorities:result.priorities.map(p=>p.category==='review'?{...p,workItemId:'waiting-only'}:p)},c),/category citation/);
+});
+
+test('Seven populated sections retain representation without exceeding the twenty-record context',()=>{
+  const patches={actionable_now:{priority:'Now'},blocked:{},review:{status:'Review'},waiting_followup:{status:'Waiting',last_activity_at:'2026-10-01T12:00:00Z',updated_at:'2026-10-01T12:00:00Z'},missing_action:{status:'Inbox',next_action:null},stalled:{status:'Inbox',last_activity_at:'2026-09-01T12:00:00Z',updated_at:'2026-09-01T12:00:00Z'},due_soon:{status:'Inbox',target_date:'2026-10-05'}};
+  const items=briefing.attentionCategories.flatMap(category=>Array.from({length:5},(_,i)=>row({id:`${category}-${i}`,priority:'Later',...patches[category]})));
+  const relationships=Array.from({length:5},(_,i)=>({id:`edge-${i}`,from_item_id:`blocked-${i}`,to_item_id:'actionable_now-0',relationship_type:'blocked_by'}));
+  const c=briefing.buildBriefingContext(snapshot(items,{relationships}),new Date('2026-10-05T16:00:00Z'));
+  assert.equal(c.records.length,20);assert.equal(c.omittedOpenItems,15);
+  for(const category of briefing.attentionCategories){assert.equal(c.categories[category].count,5);assert.ok(c.categories[category].workItemIds.length>=2);}
+  assert.equal(briefing.MAX_PRIORITY_RECOMMENDATIONS,14);
+  const evidence={stalled:'stale',due_soon:'due_soon'};
+  const priorities=briefing.attentionCategories.flatMap(category=>c.categories[category].workItemIds.slice(0,2).map(workItemId=>recommendation({category,workItemId,evidenceIds:[evidence[category]??category]})));
+  assert.equal(priorities.length,14);assert.doesNotThrow(()=>briefing.validateBriefing({priorities,overlaps:[],uncertainty:[]},c));
+});

@@ -106,3 +106,11 @@ Not ready for autonomous AI writes. A constrained read-only reasoning pilot is t
 - Real-model evaluation remains blocked by missing server OpenAI credentials. Secure key setup was opened. AI remains disabled until a key is securely connected and live acceptance passes. Current CI must be verified for the final commit before merge.
 
 - Authenticated daily-briefing GET acceptance passed on the same preview: 16 open items, 5 actionable Now candidates, 2 Waiting follow-ups, 1 missing next action, 3 stalled candidates, 0 due-soon/overdue and recorded overlap pairs. The Valencia citation opened the correct existing drawer with blank next action. Recorded-only mode accurately says AI is not connected. No model response was represented as tested.
+
+## October 6: blocked work and review decisions
+
+- Added explicit Blocked work and Decisions awaiting review sections to the existing daily briefing. Blocking requires an open directed blocker relationship; Waiting alone does not qualify. Review describes the saved status, without inventing a particular approval requirement.
+- The twenty-record context now reserves up to two candidates from each of seven categories. This preserves every populated section without exceeding the bound. Structured recommendations permit at most two per section and require the section's recorded evidence.
+- All 36 regression tests, production build and TypeScript pass. Added tests cover Waiting-only/closed exclusions, blocked/review citation validation, and all seven populated categories within a twenty-record context.
+- Prior final commit `d407136` now has passing CI. Its recorded live token-renewal evidence is retained; natural JWT expiry and live model evaluation are not claimed as verified.
+- AI generation remains disabled pending secure server key connection and real-model evaluation. This change stays in draft PR #3; production is not promoted.

@@ -3,9 +3,10 @@ import type { WorkItem } from './types';
 import { itemsFromSnapshot } from './work-read';
 import { isOpen } from './work-logic';
 
-export const attentionCategories=['actionable_now','waiting_followup','missing_action','stalled','due_soon'] as const;
+export const attentionCategories=['actionable_now','blocked','review','waiting_followup','missing_action','stalled','due_soon'] as const;
+export const MAX_PRIORITY_RECOMMENDATIONS=attentionCategories.length*2;
 export type AttentionCategory=typeof attentionCategories[number];
-export const categoryLabels:Record<AttentionCategory,string>={actionable_now:'Actionable Now work',waiting_followup:'Waiting follow-ups',missing_action:'Missing next actions',stalled:'Aging or stalled work',due_soon:'Due soon or overdue'};
+export const categoryLabels:Record<AttentionCategory,string>={actionable_now:'Actionable Now work',blocked:'Blocked work',review:'Decisions awaiting review',waiting_followup:'Waiting follow-ups',missing_action:'Missing next actions',stalled:'Aging or stalled work',due_soon:'Due soon or overdue'};
 export type OverlapCandidate={id:string;workItemIds:[string,string];signals:string[]};
 export type Evidence = {id:string;label:string};
 export type BriefingRecord = {
@@ -92,7 +93,7 @@ export function buildBriefingContext(snapshot:WorkSnapshot,now=new Date()):Brief
     category==='stalled'?e.id==='stale':category==='due_soon'?['due_soon','overdue'].includes(e.id):e.id===category);
   // Reserve representation for each section before filling remaining ranked slots.
   const chosen=new Set<string>();
-  for(const category of attentionCategories)records.filter(entry=>matches(entry.record,category)).slice(0,3).forEach(entry=>chosen.add(entry.record.id));
+  for(const category of attentionCategories)records.filter(entry=>matches(entry.record,category)).slice(0,2).forEach(entry=>chosen.add(entry.record.id));
   for(const entry of records){if(chosen.size>=20)break;chosen.add(entry.record.id);}
   const selected=records.filter(entry=>chosen.has(entry.record.id)).map(entry=>entry.record);
   const categories=Object.fromEntries(attentionCategories.map(category=>[category,{
@@ -123,7 +124,7 @@ export function buildBriefingContext(snapshot:WorkSnapshot,now=new Date()):Brief
 export function validateBriefing(value:unknown,context:BriefingContext):GeneratedBriefing{
   if(!value||typeof value!=='object')throw new Error('Invalid briefing.');
   const raw=value as Record<string,unknown>;
-  if(Object.keys(raw).some(key=>!['priorities','overlaps','uncertainty'].includes(key))||!Array.isArray(raw.priorities)||raw.priorities.length>10||!Array.isArray(raw.overlaps)||raw.overlaps.length>3||!Array.isArray(raw.uncertainty)||raw.uncertainty.length>5)throw new Error('Invalid briefing.');
+  if(Object.keys(raw).some(key=>!['priorities','overlaps','uncertainty'].includes(key))||!Array.isArray(raw.priorities)||raw.priorities.length>MAX_PRIORITY_RECOMMENDATIONS||!Array.isArray(raw.overlaps)||raw.overlaps.length>3||!Array.isArray(raw.uncertainty)||raw.uncertainty.length>5)throw new Error('Invalid briefing.');
   const seen=new Set<string>();
   const priorities=raw.priorities.map(value=>{
     if(!value||typeof value!=='object')throw new Error('Invalid recommendation.');
