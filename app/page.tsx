@@ -7,11 +7,12 @@ import { Status, WorkItem } from '@/lib/types';
 import { workItemFromRow, workItemInsert, workItemPatch } from '@/lib/work-items';
 import { itemsFromSnapshot, type WorkSnapshot, type WorkDetailsResponse, type ItemMutationResponse, type SourceMutationResponse } from '@/lib/work-read';
 import DailyBriefing from '@/components/daily-briefing';
+import HistoryImporter from '@/components/history-importer';
 
-type View = 'Command Center' | 'Board' | 'Projects' | 'Ideas' | 'Workflows' | 'Dashboards & Tools' | 'Waiting' | 'Completed' | 'Search';
-const views: View[] = ['Command Center','Board','Projects','Ideas','Workflows','Dashboards & Tools','Waiting','Completed','Search'];
+type View = 'Command Center' | 'Board' | 'Projects' | 'Ideas' | 'Workflows' | 'Dashboards & Tools' | 'Waiting' | 'Completed' | 'Search' | 'Project History';
+const views: View[] = ['Command Center','Board','Projects','Ideas','Workflows','Dashboards & Tools','Waiting','Completed','Search','Project History'];
 const viewIcons: Record<View,string> = {
-  'Command Center':'⌂','Board':'▦','Projects':'□','Ideas':'◌','Workflows':'⌘','Dashboards & Tools':'▣','Waiting':'◷','Completed':'✓','Search':'⌕'
+  'Command Center':'⌂','Board':'▦','Projects':'□','Ideas':'◌','Workflows':'⌘','Dashboards & Tools':'▣','Waiting':'◷','Completed':'✓','Search':'⌕','Project History':'↶'
 };
 const statuses: Status[] = ['Inbox','Clarify','Ready','Active','Waiting','Review','Done'];
 const priorities: WorkItem['priority'][] = ['Now','Next','Later','Someday'];
@@ -288,6 +289,7 @@ export default function Home() {
         <header className="topbar"><div className="topbar-title"><strong>Work OS</strong><span>{view}</span></div><div className="top-actions"><button className="ghost" onClick={() => setView('Search')}>⌕ Search</button><form action="/auth/signout" method="post"><button className="ghost" type="submit">Sign out</button></form><button className="primary" disabled={loadingData||!!dataError} onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
         <section className="content">{loadingData && <div className="data-state" role="status">Loading your Work OS…</div>}{dataError && <div className="data-state error" role="alert">{dataError} <button onClick={()=>setReloadCount(v=>v+1)}>Retry</button></div>}{dataWarning && <div className="data-state error" role="alert">{dataWarning} <button onClick={()=>setDataWarning('')}>Dismiss</button></div>}{!loadingData&&!dataError&&<>
           {view === 'Command Center' && <><DailyBriefing revision={reloadCount} onOpen={id=>{const item=items.find(i=>i.id===id);if(item)setSelected(item);}}/><CommandCenter items={items} metrics={metrics} onOpen={setSelected} /></>}
+          {view === 'Project History' && <HistoryImporter items={items} onSaved={()=>setReloadCount(v=>v+1)} onOpen={id=>{const item=items.find(i=>i.id===id);if(item)setSelected(item);}}/>}
           {view === 'Board' && <Board items={items} areaFilter={areaFilter} setAreaFilter={setAreaFilter} typeFilter={typeFilter} setTypeFilter={setTypeFilter} onOpen={setSelected} onMove={moveItem} />}
           {view === 'Projects' && <ListView title="Projects" items={items.filter(i=>i.type==='Project')} onOpen={setSelected} />}
           {view === 'Ideas' && <Ideas items={items} onPatch={patchItem} onOpen={setSelected} />}

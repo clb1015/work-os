@@ -1,0 +1,39 @@
+'use client';
+import {useRef,useState} from 'react';
+import type {WorkItem} from '@/lib/types';
+import {HISTORY_LIMIT,type HistoryDraft,type HistoryEntry} from '@/lib/project-history';
+type Match={id:string;title:string;status:string;reason:string};
+const empty:HistoryDraft={title:'',source:'',date:'',summary:''};
+export default function HistoryImporter({items,onSaved,onOpen}:{items:WorkItem[];onSaved:()=>void;onOpen:(id:string)=>void}){
+  const [draft,setDraft]=useState<HistoryDraft>(empty),[matches,setMatches]=useState<Match[]>([]),[stage,setStage]=useState<'input'|'review'>('input');
+  const [target,setTarget]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[reviewed,setReviewed]=useState(false);
+  const [entries,setEntries]=useState<HistoryEntry[]>([]),[brief,setBrief]=useState(''),[historyTarget,setHistoryTarget]=useState('');
+  const importId=useRef(''),pending=useRef(false);
+  async function api(body:Record<string,unknown>){const r=await fetch('/api/history-import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const p=await r.json();if(r.status===401){window.location.assign('/login?error=session-expired');throw new Error('Sign in again.');}if(!r.ok)throw new Error(p.error||'History request failed.');return p;}
+  async function run(action:()=>Promise<void>){if(pending.current)return;pending.current=true;setBusy(true);setError('');setMessage('');try{await action();}catch(e){setError(e instanceof Error?e.message:'Please retry.');}finally{pending.current=false;setBusy(false);}}
+  async function fileInput(file:File){await run(async()=>{if(!/\.(txt|md|json)$/i.test(file.name)||file.size>120000)throw new Error('Choose a .txt, .md or .json summary under 120 KB.');const content=await file.text();if(content.length>HISTORY_LIMIT)throw new Error('Summarize this file to 30,000 characters first.');let value={...draft,summary:content,source:draft.source||file.name};if(/\.json$/i.test(file.name)){let parsed;try{parsed=JSON.parse(content);}catch{throw new Error('Invalid JSON. Use a summary object, not a full ChatGPT export.');}if(!parsed||typeof parsed.summary!=='string')throw new Error('JSON needs title, source, date and summary text fields. Full account exports are not supported.');value={title:typeof parsed.title==='string'?parsed.title:'',source:typeof parsed.source==='string'?parsed.source:file.name,date:typeof parsed.date==='string'?parsed.date:'',summary:parsed.summary};}setDraft(value);setStage('input');setReviewed(false);});}
+  return <div className="history-page"><div className="page-heading"><div><h1>Project history</h1><p>Bring decisions and unfinished work from past chats into an existing project.</p></div></div>
+    <section className="history-panel"><h2>Import a project summary</h2><p>Use one project per import. Include completed work, decisions, constraints, unresolved questions and next steps. Remove student identifiers and secrets before importing. This version stores the text you review without sending it to AI.</p>
+    {error&&<p role="alert" className="data-state error">{error}</p>}{message&&<p role="status">{message}</p>}
+    {stage==='input'?<>
+      <label>Project name<input disabled={busy} maxLength={300} value={draft.title} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
+      <label>Chat link or source name<input disabled={busy} maxLength={2000} value={draft.source} onChange={e=>setDraft({...draft,source:e.target.value})} placeholder="Chat link, conversation title or filename"/></label>
+      <label>Conversation date (optional)<input disabled={busy} type="date" value={draft.date} onChange={e=>setDraft({...draft,date:e.target.value})}/></label>
+      <label>Summary or transcript<textarea disabled={busy} rows={12} maxLength={HISTORY_LIMIT} value={draft.summary} onChange={e=>setDraft({...draft,summary:e.target.value})} placeholder="Purpose, approved decisions, completed work, current status, unresolved issues, next actions, and do-not-rebuild constraints"/></label>
+      <label>Or choose a text file<input disabled={busy} type="file" accept=".txt,.md,.json" onChange={e=>{const file=e.target.files?.[0];if(file)void fileInput(file);e.target.value='';}}/></label>
+      <button className="primary" disabled={busy||!draft.title.trim()||!draft.source.trim()||!draft.summary.trim()} onClick={()=>void run(async()=>{const p=await api({op:'preview',draft});setMatches(p.matches);setTarget(p.matches[0]?.id||'');importId.current=crypto.randomUUID();setStage('review');setReviewed(false);})}>{busy?'Checking…':'Find project matches'}</button>
+    </>:<>
+      <h3>Review before saving</h3><p>History is added alongside the current record. Status, next action, notes and other current fields stay intact. Resolve conflicting claims in the summary before saving.</p>
+      {!!matches.length&&<ul>{matches.map(m=><li key={m.id}><strong>{m.title}</strong> ({m.status}): {m.reason} <button disabled={busy} onClick={()=>onOpen(m.id)}>Open record</button></li>)}</ul>}
+      {!matches.length&&<p>No close title match found. Choose a record below, or use Capture to create a project first. We will not create one automatically.</p>}
+      <label>Add history to<select disabled={busy} value={target} onChange={e=>{setTarget(e.target.value);setReviewed(false);}}><option value="">Choose an existing work item</option>{items.map(i=><option key={i.id} value={i.id}>{i.title} ({i.status})</option>)}</select></label>
+      <p><strong>{draft.title}</strong><br/>Source: {draft.source}<br/>Conversation date: {draft.date||'Unknown'}</p>
+      <label>Reviewed history<textarea disabled={busy} rows={12} maxLength={HISTORY_LIMIT} value={draft.summary} onChange={e=>{setDraft({...draft,summary:e.target.value});setReviewed(false);}}/></label>
+      <label className="history-check"><input disabled={busy} type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/>I checked the project match, historical claims, conflicts and sensitive information.</label>
+      <div className="modal-actions"><button disabled={busy} onClick={()=>{setStage('input');setReviewed(false);}}>Back to edit</button><button className="primary" disabled={busy||!target||!reviewed||!draft.summary.trim()} onClick={()=>void run(async()=>{const p=await api({op:'save',itemId:target,importId:importId.current,draft,reviewed});setMessage(p.duplicate?'This history was already saved.':'History saved. Current project fields are unchanged.');setStage('input');setDraft(empty);setReviewed(false);onSaved();if(historyTarget===target){const h=await api({op:'history',itemId:target});setEntries(h.entries);setBrief(h.brief);}})}>{busy?'Saving…':'Save reviewed history'}</button></div>
+    </>}
+    </section>
+    <section className="history-panel"><h2>Saved history and continuation brief</h2><label>Project<select disabled={busy} value={historyTarget} onChange={e=>{const id=e.target.value;setHistoryTarget(id);setEntries([]);setBrief('');if(id)void run(async()=>{const p=await api({op:'history',itemId:id});setEntries(p.entries);setBrief(p.brief);});}}><option value="">Choose a project</option>{items.map(i=><option key={i.id} value={i.id}>{i.title}</option>)}</select></label>
+      {brief&&<><button disabled={busy} onClick={()=>void run(async()=>{await navigator.clipboard.writeText(brief);setMessage('Continuation brief copied.');})}>Copy continuation brief</button><details><summary>Review continuation brief</summary><pre>{brief}</pre></details>{!entries.length&&<p>No imported history yet. The brief includes the current project fields.</p>}{entries.map(e=><details key={e.id}><summary>{e.title} · {e.date||'Date unknown'}</summary><p>Source: {e.source}<br/>Imported: {new Date(e.importedAt).toLocaleString()}</p><pre>{e.summary}</pre></details>)}</>}
+    </section></div>;
+}
