@@ -10,6 +10,7 @@ export function briefingFailureMetadata(error:unknown){
   if(!(error instanceof BriefingServiceError))return {code:'unexpected'};
   return {code:error.code,...(error.detail?{detail:error.detail}:{}),...(error.httpStatus?{httpStatus:error.httpStatus}:{})};
 }
+export const BRIEFING_TIMEOUT_MS=45000;
 export const DEFAULT_BRIEFING_MODEL='gpt-6.1-sol';
 export function aiBriefingAvailable(){return process.env.WORK_OS_AI_ENABLED==='true'&&!!process.env.OPENAI_API_KEY;}
 
@@ -23,7 +24,7 @@ export async function generateBriefing(context:BriefingContext):Promise<Generate
   if(input.length>60000)throw new Error('Briefing context exceeds the pilot limit.');
   let response:Response;
   try{response=await fetch('https://api.openai.com/v1/responses',{
-    method:'POST',cache:'no-store',signal:AbortSignal.timeout(25000),
+    method:'POST',cache:'no-store',signal:AbortSignal.timeout(BRIEFING_TIMEOUT_MS),
     headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},
     body:JSON.stringify({
       model:process.env.OPENAI_BRIEFING_MODEL||DEFAULT_BRIEFING_MODEL,
@@ -41,7 +42,7 @@ export async function generateBriefing(context:BriefingContext):Promise<Generate
   });}catch(error){throw new BriefingServiceError(error instanceof Error&&['TimeoutError','AbortError'].includes(error.name)?'timeout':'network');}
   if(!response.ok)throw new BriefingServiceError('http',undefined,response.status);
   let raw:unknown;
-  try{raw=await response.json();}catch{throw new BriefingServiceError('response_json');}
+  try{raw=await response.json();}catch(error){throw new BriefingServiceError(error instanceof Error&&['TimeoutError','AbortError'].includes(error.name)?'timeout':'response_json');}
   if(!raw||typeof raw!=='object')throw new BriefingServiceError('response_json');
   const payload=raw as {status?:string;incomplete_details?:{reason?:string};output?:{type?:string;content?:{type?:string;text?:string}[]}[]};
   if(payload.status!=='completed'||!Array.isArray(payload.output))throw new BriefingServiceError('incomplete',payload.incomplete_details?.reason==='max_output_tokens'?'max_output_tokens':payload.incomplete_details?.reason==='content_filter'?'content_filter':'unknown');

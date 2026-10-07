@@ -6,7 +6,7 @@ import { aiBriefingAvailable, generateBriefing, briefingFailureMetadata } from '
 import { claimBriefingRequest } from '@/lib/briefing-limits';
 
 export const dynamic='force-dynamic';
-export const maxDuration=30;
+export const maxDuration=60;
 const headers={'Cache-Control':'private, no-store'};
 const error=(message:string,status:number)=>NextResponse.json({error:message},{status,headers});
 

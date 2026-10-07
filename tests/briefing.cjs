@@ -202,3 +202,17 @@ test('Provider diagnostics identify failure boundaries without retaining upstrea
     assert.deepEqual(provider.briefingFailureMetadata(new Error('PRIVATE_KEY PRIVATE_DATA')),{code:'unexpected'});
   }finally{global.fetch=prev.fetch;if(prev.key===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=prev.key;if(prev.enabled===undefined)delete process.env.WORK_OS_AI_ENABLED;else process.env.WORK_OS_AI_ENABLED=prev.enabled;}
 });
+
+
+test('Generation timeout allows slower success and still aborts within the server budget',async()=>{
+  const prev={key:process.env.OPENAI_API_KEY,enabled:process.env.WORK_OS_AI_ENABLED,fetch:global.fetch,timeout:AbortSignal.timeout};
+  process.env.OPENAI_API_KEY='test-only';process.env.WORK_OS_AI_ENABLED='true';
+  let timer,limit;AbortSignal.timeout=ms=>{limit=ms;timer=new AbortController();return timer.signal;};
+  const provider=load('lib/briefing-provider.ts',{'./daily-briefing':briefing});
+  try{
+    global.fetch=async(_url,{signal})=>{assert.equal(signal.aborted,false);return {ok:true,json:async()=>({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(generated())}]}]})};};
+    assert.deepEqual(await provider.generateBriefing(context()),generated());assert.equal(limit,45000);assert.equal(route().api.maxDuration,60);assert.ok(limit<route().api.maxDuration*1000);
+    global.fetch=async(_url,{signal})=>new Promise((_resolve,reject)=>{signal.addEventListener('abort',()=>reject(signal.reason),{once:true});queueMicrotask(()=>timer.abort(new DOMException('private timeout detail','TimeoutError')));});
+    await assert.rejects(provider.generateBriefing(context()),error=>{assert.deepEqual(provider.briefingFailureMetadata(error),{code:'timeout'});return true;});
+  }finally{AbortSignal.timeout=prev.timeout;global.fetch=prev.fetch;if(prev.key===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=prev.key;if(prev.enabled===undefined)delete process.env.WORK_OS_AI_ENABLED;else process.env.WORK_OS_AI_ENABLED=prev.enabled;}
+});
