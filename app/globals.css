@@ -258,6 +258,22 @@ button.primary,.primary{background:linear-gradient(180deg,#1aaea2,#138c85)!impor
 @media(max-width:760px){.relation-add-grid,.source-add-grid{grid-template-columns:1fr}.source-add-grid input:nth-of-type(2),.source-add-grid button{grid-column:auto}.source-actions{align-items:flex-end;flex-direction:column}}
 
 .empty-state{padding:14px;color:var(--muted)}
+.daily-briefing{border:1px solid var(--line);border-radius:12px;padding:20px;background:var(--panel,#0f1b26);margin-bottom:26px}
+.briefing-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
+.briefing-heading h2{font-size:22px;margin:4px 0 8px}
+.briefing-heading p,.briefing-asof,.briefing-note{color:var(--muted);font-size:12px;line-height:1.6}
+.briefing-actions{display:flex;gap:8px;flex-wrap:wrap;flex-shrink:0}
+.briefing-actions button,.briefing-error button{min-height:44px;padding:10px 14px;border:1px solid var(--line);border-radius:7px;background:#0d1924;color:var(--text)}
+.briefing-error{color:#ef7a81}
+.daily-briefing summary{cursor:pointer;padding:14px 0;font-weight:600}
+.briefing-signals,.briefing-recommendations ol{padding-left:22px}
+.briefing-signals li,.briefing-recommendations ol>li{padding:14px 0;border-top:1px solid var(--line)}
+.briefing-record-link{padding:0;border:0;background:none;color:var(--accent);font:inherit;font-weight:600;text-align:left;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}
+.briefing-signals small{display:block;color:var(--muted);margin:7px 0}
+.briefing-evidence{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.briefing-evidence span{font-size:11px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;overflow-wrap:anywhere;min-width:0;max-width:100%}
+.daily-briefing p,.daily-briefing li{overflow-wrap:anywhere;line-height:1.6}
+@media(max-width:760px){.daily-briefing{padding:16px}.briefing-heading{flex-direction:column}.briefing-actions{width:100%}.briefing-actions button{flex:1}.briefing-heading h2{font-size:20px}}
 .completion-backdrop{z-index:40}
 .completion-modal{width:min(460px,92vw)}
 .completion-modal h2{margin:0 0 12px}
@@ -285,3 +301,10 @@ button.primary,.primary{background:linear-gradient(180deg,#1aaea2,#138c85)!impor
   .activity-list>div{align-items:flex-start;flex-wrap:wrap}
   .search-box input{min-width:0}
 }
+
+.briefing-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}
+.briefing-category{min-width:0;border:1px solid var(--line);border-radius:12px;padding:14px;overflow-wrap:anywhere}
+.briefing-category h3{font-size:15px;margin:0 0 10px}
+.briefing-category .briefing-signals{padding:0;margin:0}
+.briefing-category .briefing-signals li{margin:0 0 10px}
+@media(max-width:760px){.briefing-sections{grid-template-columns:1fr}}

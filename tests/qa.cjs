@@ -7,6 +7,7 @@ const ts=require('typescript');
 function load(file,mocks={}){
   const full=path.resolve(file),m=new Module(full,module);
   m.filename=full;m.paths=Module._nodeModulePaths(path.dirname(full));
+  mocks={'server-only':{},...mocks};
   const original=m.require.bind(m);
   m.require=name=>name in mocks?mocks[name]:original(name);
   m._compile(ts.transpileModule(fs.readFileSync(full,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,full);
@@ -60,7 +61,7 @@ function database(seed={},failure){
     }};return q;
   }};return {client,tables};
 }
-function api(db,user={id:owner}){return load('app/api/work-items/route.ts',{'@/lib/auth':{getAuthed:async()=>({supabase:db.client,user})},'@/lib/work-logic':logic});}
+function api(db,user={id:owner}){return load('app/api/work-items/route.ts',{'@/lib/auth':{getAuthed:async()=>({supabase:db.client,user})},'@/lib/work-logic':logic,'@/lib/work-read-server':load('lib/work-read-server.ts')});}
 const post=(a,body,origin='https://work-os-gray.vercel.app')=>a.POST(new Request('https://work-os-gray.vercel.app/api/work-items',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify(body)}));
 test('Anonymous access is denied and cross-origin mutation is rejected',async()=>{
   const db=database();assert.equal((await api(db,null).GET()).status,401);

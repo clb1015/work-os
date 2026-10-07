@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAuthed } from '@/lib/auth';
+import { readWorkSnapshot } from '@/lib/work-read-server';
 import { normalizedTitle } from '@/lib/work-logic';
 
 class RequestError extends Error {
@@ -42,16 +43,8 @@ export async function GET() {
   const { supabase, user } = await getAuthed();
   if (!user) return NextResponse.json({ error:'Your session expired. Sign in again.' }, { status:401 });
   try {
-    const results = await Promise.all([
-      supabase.from('work_items').select('*').order('updated_at', { ascending:false }),
-      supabase.from('work_item_relationships').select('id,from_item_id,to_item_id,relationship_type'),
-      supabase.from('work_item_tags').select('work_item_id,tag_id'),
-      supabase.from('tags').select('id,name'),
-      supabase.from('work_item_sources').select('work_item_id,source_id,is_primary'),
-      supabase.from('sources_of_truth').select('id,name,source_type,location'),
-    ]);
-    const [items,relationships,tagLinks,tags,sourceLinks,sources] = results.map(checked);
-    return NextResponse.json({userId:user.id,items,relationships,tagLinks,tags,sourceLinks,sources},{headers:{'Cache-Control':'private, no-store'}});
+    const snapshot = await readWorkSnapshot(supabase,user.id);
+    return NextResponse.json(snapshot,{headers:{'Cache-Control':'private, no-store'}});
   } catch (error) { console.error('work-os-load-error',error); return NextResponse.json({error:'Work OS could not load your data. Please retry.'},{status:500}); }
 }
 export async function POST(request: Request) {

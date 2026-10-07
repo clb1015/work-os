@@ -26,7 +26,7 @@ Audit date: October 4, 2026. Canonical repository, deployment and Supabase proje
 
 ## Remaining issues
 
-- PR #1 was approved, merged and deployed October 4 at `eeb067e`. Authenticated desktop acceptance confirmed Capture, duplicate detection, persisted drawer edits, tags, all six relationships, primary sources and logout. Temporary fixtures were removed and the original 17-item inventory restored. PR #2 follows up on completion confirmation and phone-width verification.
+- PR #1 was approved, merged and deployed October 4 at `eeb067e`. Authenticated desktop acceptance confirmed Capture, duplicate detection, persisted drawer edits, tags, all six relationships, primary sources and logout. Temporary fixtures were removed and the original 17-item inventory restored. PR #2 completed the confirmation and phone-width follow-up and was merged and deployed October 5 at `2a00267`.
 
 - Primary-source changes and activity writes are multiple requests, not a database transaction. Failures are surfaced and primary switching has compensation, but simultaneous tabs and partial outages can still cause inconsistent state. Use narrowly scoped SECURITY INVOKER database functions with ownership checks and row locks before AI-assisted writes.
 - Exact-title comparison across different Capture IDs is advisory and can race between tabs. Stable-ID retry protection is atomic via the existing primary key. Deliberate same-title items remain supported.
@@ -71,7 +71,7 @@ Not ready for autonomous AI writes. A constrained read-only reasoning pilot is t
 - Original Workflows view showed canned progress despite zero workflow definitions/runs. That misleading progress is removed in the PR.
 - Production runtime error query reported no errors during the QA window.
 - Post-fix authenticated acceptance passed on October 4 and the completion/phone follow-up passed October 5. Real expired-token refresh remains unverified in a live browser; injected expired-session and cookie-refresh regressions pass. Phone evidence uses actual iframe CSS viewports, not browser zoom or device emulation.
-- PR #1 was explicitly approved, merged and deployed at `eeb067e`. PR #2 contains the completion/phone follow-up on `fix/completion-mobile-2026-10-05`; production remains on PR #1 until this follow-up is merged.
+- PR #1 was explicitly approved, merged and deployed at `eeb067e`. PR #2 was approved, merged and deployed October 5 at `2a00267`; production deployment `dpl_9barG8qcR6ToiSpLPcDCQMa4gppQ` was READY with no runtime errors during release verification.
 
 ## October 5 follow-up: completion and phone layouts
 
@@ -81,3 +81,36 @@ Not ready for autonomous AI writes. A constrained read-only reasoning pilot is t
 - Cancellation and Escape restore focus to the re-enabled drawer Save button. Tab/Shift+Tab stay within confirmation. Board and drawer acceptance save Done; reopening clears the server completion timestamp. Supabase checks verified cancellation left stored fields/history unchanged.
 - Regression suite: 15/15 passed. Production build and TypeScript passed. Disposable fixture, tag, source and associated rows were removed; original 17 work items remain.
 - The temporary protected viewport verification route was removed from the final release tree. Production authentication, RLS, data APIs and credentials are unchanged.
+
+## October 5: Phase 4A daily review pilot
+
+- Prepared a typed owner-scoped read API shared by the existing inventory and the new daily-review endpoint. All reads use the authenticated publishable-key server client, explicit user predicates and existing RLS.
+- Command Center can display deterministic recorded signals immediately. Optional OpenAI-generated priorities require a server key and an explicit enable flag. No OpenAI key was configured in the canonical project at implementation time, so paid generation remains disabled.
+- Generated priorities require valid retrieved item IDs and per-item evidence IDs. Closed/parked work is excluded, directed blockers are interpreted correctly, and dates use America/New_York. Suggestions never mutate inventory or execute actions.
+- Model input excludes free-form Notes, activity details and source locations. Source pointers do not imply file contents were read. Prompts and outputs are not logged or saved.
+- Bounded context, timeout, output cap and per-instance concurrency/cooldown/attempt guard are implemented. This guard is not a global billing cap; distributed quota enforcement remains necessary before expansion.
+- Local suite: 27 tests pass, including injected API/model failures, citation validation, read-only and owner boundaries, timezones, context limits and cookie-refresh/expired-session regressions. Production build and TypeScript pass.
+- A read-only database snapshot of the existing 17-item inventory produced 16 open items, 10 Active, 2 Waiting, 3 Review and 1 missing next action. No target dates currently qualify as due soon or overdue, and no open blocking relationship is recorded. This verifies deterministic logic against real inventory; it is not authenticated HTTP or live-model acceptance.
+- Pending before enabling AI: secure key connection, a real-model evaluation and authenticated preview checks. Live expired-token refresh remains pending and is not represented as verified by mocked tests.
+
+## October 5: six-section attention briefing follow-up
+
+- Continued existing draft PR #3, based on production `2a00267`. Only the daily attention capability is implemented. Earlier references to blocked-work, idea overlap and weekly review describe future phases, not additional enabled capabilities.
+- Briefing now separates actionable Now work, Waiting follow-ups, missing next actions across all open statuses, stalled work, due soon/overdue work, and possible overlap/capacity conflicts. Includes recorded effort and why-now. Missing impact/effort stay unknown. Counts and category membership are deterministic; model judgment is validated against item/category/evidence and overlap-pair citations.
+- Up to three records from each populated category are reserved before filling the twenty-record context. Counts refer to the loaded open inventory. Pair candidates use actual supported relationships (`related`, `duplicates`), tags, meaningful title words and Significant-effort Now work; these are clues, not confirmed duplicates.
+- Activity age uses the latest valid update, last-activity timestamp or retrieved history event. Waiting follow-ups use a three-day inactivity threshold, unknown activity date or due date within seven days; stalled work uses eight days.
+- Reasoning reader and model provider have server-only boundaries. Reasoning SELECTs exclude Notes, source locations, activity details and metadata at the database boundary, while preserving owner predicates, caller JWT and existing RLS.
+- Local validation: 34 tests passed and production build/TypeScript passed. New coverage checks all categories, current activity, effort/unknown facts, pair citations, bounded category representation, required model sections and least-context SELECTs. Existing focused regression suite also passes; no repeat of the full manual QA audit.
+- Live authenticated preview `c7a32f4` forced stale local expiry metadata, then exercised the actual Supabase refresh path. JWT issued-at increased from 1791230850 to 1791230915; expiry increased from 1791234450 to 1791234515. The subsequent authenticated inventory request returned 200 with all 17 items. This verifies live renewal and persisted refreshed cookies; it does not demonstrate natural expiry of a signed JWT. No auth settings or Work Item data were changed. Temporary preview-only acceptance routes are removed from the final release tree.
+- Production authenticated Board still shows the original inventory; canonical Vercel production is READY on `2a00267`.
+- Real-model evaluation remains blocked by missing server OpenAI credentials. Secure key setup was opened. AI remains disabled until a key is securely connected and live acceptance passes. Current CI must be verified for the final commit before merge.
+
+- Authenticated daily-briefing GET acceptance passed on the same preview: 16 open items, 5 actionable Now candidates, 2 Waiting follow-ups, 1 missing next action, 3 stalled candidates, 0 due-soon/overdue and recorded overlap pairs. The Valencia citation opened the correct existing drawer with blank next action. Recorded-only mode accurately says AI is not connected. No model response was represented as tested.
+
+## October 6: blocked work and review decisions
+
+- Added explicit Blocked work and Decisions awaiting review sections to the existing daily briefing. Blocking requires an open directed blocker relationship; Waiting alone does not qualify. Review describes the saved status, without inventing a particular approval requirement.
+- The twenty-record context now reserves up to two candidates from each of seven categories. This preserves every populated section without exceeding the bound. Structured recommendations permit at most two per section and require the section's recorded evidence.
+- All 36 regression tests, production build and TypeScript pass. Added tests cover Waiting-only/closed exclusions, blocked/review citation validation, and all seven populated categories within a twenty-record context.
+- Prior final commit `d407136` now has passing CI. Its recorded live token-renewal evidence is retained; natural JWT expiry and live model evaluation are not claimed as verified.
+- AI generation remains disabled pending secure server key connection and real-model evaluation. This change stays in draft PR #3; production is not promoted.
