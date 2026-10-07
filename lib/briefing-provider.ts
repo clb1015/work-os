@@ -1,6 +1,15 @@
 import 'server-only';
 import { attentionCategories, MAX_PRIORITY_RECOMMENDATIONS, validateBriefing, type BriefingContext, type GeneratedBriefing } from './daily-briefing';
 
+// Diagnostics contain fixed codes and numeric metadata only, never upstream text.
+type FailureCode='timeout'|'network'|'http'|'response_json'|'incomplete'|'output_size'|'output_json'|'validation';
+export class BriefingServiceError extends Error {
+  constructor(readonly code:FailureCode,readonly detail?:string,readonly httpStatus?:number){super(`Briefing ${code}${detail?`: ${detail}`:''}`);}
+}
+export function briefingFailureMetadata(error:unknown){
+  if(!(error instanceof BriefingServiceError))return {code:'unexpected'};
+  return {code:error.code,...(error.detail?{detail:error.detail}:{}),...(error.httpStatus?{httpStatus:error.httpStatus}:{})};
+}
 export const DEFAULT_BRIEFING_MODEL='gpt-6.1-sol';
 export function aiBriefingAvailable(){return process.env.WORK_OS_AI_ENABLED==='true'&&!!process.env.OPENAI_API_KEY;}
 
@@ -12,7 +21,8 @@ export async function generateBriefing(context:BriefingContext):Promise<Generate
   const modelContext={...context,records:context.records.map(record=>({...record,sources:record.sources.map(({name,type,isPrimary})=>({name,type,isPrimary}))}))};
   const input=JSON.stringify(modelContext);
   if(input.length>60000)throw new Error('Briefing context exceeds the pilot limit.');
-  const response=await fetch('https://api.openai.com/v1/responses',{
+  let response:Response;
+  try{response=await fetch('https://api.openai.com/v1/responses',{
     method:'POST',cache:'no-store',signal:AbortSignal.timeout(25000),
     headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},
     body:JSON.stringify({
@@ -28,13 +38,19 @@ export async function generateBriefing(context:BriefingContext):Promise<Generate
         },
       }}},
     }),
-  });
-  if(!response.ok)throw new Error('The AI briefing service is unavailable.');
-  const raw:unknown=await response.json();
-  if(!raw||typeof raw!=='object')throw new Error('Invalid model response.');
-  const payload=raw as {status?:string;output?:{type?:string;content?:{type?:string;text?:string}[]}[]};
-  if(payload.status!=='completed'||!Array.isArray(payload.output))throw new Error('The AI briefing was incomplete.');
+  });}catch(error){throw new BriefingServiceError(error instanceof Error&&['TimeoutError','AbortError'].includes(error.name)?'timeout':'network');}
+  if(!response.ok)throw new BriefingServiceError('http',undefined,response.status);
+  let raw:unknown;
+  try{raw=await response.json();}catch{throw new BriefingServiceError('response_json');}
+  if(!raw||typeof raw!=='object')throw new BriefingServiceError('response_json');
+  const payload=raw as {status?:string;incomplete_details?:{reason?:string};output?:{type?:string;content?:{type?:string;text?:string}[]}[]};
+  if(payload.status!=='completed'||!Array.isArray(payload.output))throw new BriefingServiceError('incomplete',payload.incomplete_details?.reason==='max_output_tokens'?'max_output_tokens':payload.incomplete_details?.reason==='content_filter'?'content_filter':'unknown');
   const output=payload.output.filter(item=>item.type==='message').flatMap(item=>item.content??[]).filter(item=>item.type==='output_text').map(item=>item.text??'').join('');
-  if(!output||output.length>16000)throw new Error('The AI briefing could not be validated.');
-  return validateBriefing(JSON.parse(output),context);
+  if(!output||output.length>16000)throw new BriefingServiceError('output_size');
+  let parsed:unknown;
+  try{parsed=JSON.parse(output);}catch{throw new BriefingServiceError('output_json');}
+  try{return validateBriefing(parsed,context);}catch(error){
+    const details:Record<string,string>={'Missing briefing category.':'missing_category','Missing category evidence.':'missing_evidence','Unknown evidence.':'unknown_evidence','Invalid citation.':'invalid_citation','Unknown citation.':'unknown_citation','Invalid category citation.':'category_citation','Unknown overlap citation.':'overlap_citation','Too many category recommendations.':'category_count'};
+    throw new BriefingServiceError('validation',error instanceof Error?details[error.message]??'schema':'schema');
+  }
 }

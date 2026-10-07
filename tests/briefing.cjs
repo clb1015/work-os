@@ -73,7 +73,7 @@ test('OpenAI request is bounded, stateless, tool-free, and treats record instruc
     assert.ok(!JSON.stringify(request.body).includes('DO_NOT_SEND'));assert.match(request.body.input[0].content,/Saved source/);
     global.fetch=async()=>({ok:true,json:async()=>({status:'incomplete',output:[]})});await assert.rejects(provider.generateBriefing(c),/incomplete/);
     global.fetch=async()=>({ok:true,json:async()=>({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(generated(recommendation({workItemId:other})))}]}]})});await assert.rejects(provider.generateBriefing(c),/citation/);
-    global.fetch=async()=>{throw new DOMException('Timed out','TimeoutError')};await assert.rejects(provider.generateBriefing(c),/Timed out/);
+    global.fetch=async()=>{throw new DOMException('Timed out','TimeoutError')};await assert.rejects(provider.generateBriefing(c),/timeout/);
   }finally{global.fetch=prev.fetch;if(prev.key===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=prev.key;if(prev.enabled===undefined)delete process.env.WORK_OS_AI_ENABLED;else process.env.WORK_OS_AI_ENABLED=prev.enabled;}
 });
 test('Pilot guard prevents simultaneous generation and limits repeated calls per instance',()=>{
@@ -87,7 +87,7 @@ function route({user={id:owner},available=true,readError=false,generateError=fal
     '@/lib/auth':{getAuthed:async()=>({user,supabase:{}})},
     '@/lib/work-read-server':{readReasoningSnapshot:async(_client,userId)=>{counts.reads++;assert.equal(userId,owner);if(readError)throw Error('db unavailable');return seed;}},
     '@/lib/daily-briefing':briefing,
-    '@/lib/briefing-provider':{aiBriefingAvailable:()=>available,generateBriefing:async c=>{counts.generate++;if(generateError)throw Error('private upstream error');return briefing.validateBriefing(generated(),c);}},
+    '@/lib/briefing-provider':{aiBriefingAvailable:()=>available,briefingFailureMetadata:()=>({code:'unexpected'}),generateBriefing:async c=>{counts.generate++;if(generateError)throw Error('private upstream error');return briefing.validateBriefing(generated(),c);}},
     '@/lib/briefing-limits':{claimBriefingRequest:()=>limit?()=>{counts.released++;}:null},
   });return {api,counts,seed};
 }
@@ -182,4 +182,23 @@ test('Seven populated sections retain representation without exceeding the twent
   const evidence={stalled:'stale',due_soon:'due_soon'};
   const priorities=briefing.attentionCategories.flatMap(category=>c.categories[category].workItemIds.slice(0,2).map(workItemId=>recommendation({category,workItemId,evidenceIds:[evidence[category]??category]})));
   assert.equal(priorities.length,14);assert.doesNotThrow(()=>briefing.validateBriefing({priorities,overlaps:[],uncertainty:[]},c));
+});
+
+
+test('Provider diagnostics identify failure boundaries without retaining upstream secrets',async()=>{
+  const prev={key:process.env.OPENAI_API_KEY,enabled:process.env.WORK_OS_AI_ENABLED,fetch:global.fetch};
+  process.env.OPENAI_API_KEY='PRIVATE_KEY';process.env.WORK_OS_AI_ENABLED='true';
+  const provider=load('lib/briefing-provider.ts',{'./daily-briefing':briefing});
+  const cases=[
+    [async()=>{throw new DOMException('PRIVATE_KEY PRIVATE_DATA','TimeoutError')},{code:'timeout'}],
+    [async()=>{throw new Error('PRIVATE_KEY PRIVATE_DATA')},{code:'network'}],
+    [async()=>({ok:false,status:429}),{code:'http',httpStatus:429}],
+    [async()=>({ok:true,json:async()=>({status:'incomplete',incomplete_details:{reason:'max_output_tokens'},output:[]})}),{code:'incomplete',detail:'max_output_tokens'}],
+    [async()=>({ok:true,json:async()=>({status:'incomplete',incomplete_details:{reason:'PRIVATE_DATA'},output:[]})}),{code:'incomplete',detail:'unknown'}],
+    [async()=>({ok:true,json:async()=>({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({priorities:[],overlaps:[],uncertainty:[]})}]}]})}),{code:'validation',detail:'missing_category'}],
+  ];
+  try{
+    for(const [fetch,expected] of cases){global.fetch=fetch;await assert.rejects(provider.generateBriefing(context()),error=>{assert.deepEqual(provider.briefingFailureMetadata(error),expected);assert.ok(!JSON.stringify(error).includes('PRIVATE'));return true;});}
+    assert.deepEqual(provider.briefingFailureMetadata(new Error('PRIVATE_KEY PRIVATE_DATA')),{code:'unexpected'});
+  }finally{global.fetch=prev.fetch;if(prev.key===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=prev.key;if(prev.enabled===undefined)delete process.env.WORK_OS_AI_ENABLED;else process.env.WORK_OS_AI_ENABLED=prev.enabled;}
 });
