@@ -43,3 +43,11 @@ Work Items, tags, relationships, sources and history come from Supabase. Workflo
 CI runs `npm ci`, failure-path and behavior regression tests, and the production build. See `docs/production-readiness.md` for manual production verification, limitations and the proposed AI phase.
 
 Sources of truth remain in OneDrive, GitHub and other external systems. Search existing work before starting another project. AI suggestions must eventually be reviewable proposals, never the authoritative inventory.
+
+## Project history importer
+
+Project History accepts one project at a time as pasted text or a `.txt`, `.md`, or summary-object `.json` file (title, source, date, summary). Full ChatGPT account exports, PDFs and automatic access to chat history are not supported. Title matching is a suggestion; the user selects an existing Work Item and reviews the full text before saving. Create new projects through Capture first.
+
+History retains provenance, conversation date and import date in `work_items.metadata.projectHistory`, without overwriting current status, next action, Notes or other project fields. It uses the caller session, explicit owner filters and RLS, with an updated_at compare-and-swap and retry deduplication. No schema changes, paid model requests or external source fetching are required. Imports are capped at 30,000 characters and 30 entries per project. Input files remain local until the reviewed text is submitted; remove student identifiers and secrets first.
+
+The continuation brief includes current project fields and historical text with an explicit instruction to flag conflicts and avoid rebuilding. History is not included in the existing AI attention briefing. Extraction, automatic conflict classification and repository/alias matching are future extensions; this release preserves the reviewed text rather than claiming to verify historical assertions.
