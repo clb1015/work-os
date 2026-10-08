@@ -1,5 +1,5 @@
 export type HistoryDraft = {title:string;source:string;date:string;summary:string};
-export type HistoryEntry = HistoryDraft & {id:string;importedAt:string};
+export type HistoryEntry = HistoryDraft & {id:string;importedAt:string;bulkReview?:{sources:import('./bulk-history').Conversation[];supersededIds:string[];retentionAction:string;historical:true}};
 export const HISTORY_LIMIT=30000;
 export function validateHistory(value:unknown):HistoryDraft {
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('Invalid history.');
