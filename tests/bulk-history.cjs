@@ -10,7 +10,7 @@ function load(file,mocks={}){
   mocks={'server-only':{},...mocks};
   const original=m.require.bind(m);
   m.require=name=>name in mocks?mocks[name]:original(name);
-  m._compile(ts.transpileModule(fs.readFileSync(full,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,full);
+  m._compile(ts.transpileModule(fs.readFileSync(full,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,full);
   return m.exports;
 }
 function database(seed={},failure){
@@ -53,6 +53,77 @@ test('Archive preserves provenance, text branches, versions and repeat deduplica
  assert.equal(v.conversations.length,2);assert.equal(v.conversations[0].originalId,'x');assert.match(v.conversations[0].text,/m1/);assert.match(v.conversations[0].text,/Alternate branch/);assert.ok(v.conversations[0].date);assert.ok(v.warnings.some(w=>w.includes('branches')));
 });
 test('Invalid and oversized archives reject without truncation',()=>{for(const input of ['bad','[]',JSON.stringify([{title:'Huge',text:'x'.repeat(100001)}]),JSON.stringify(Array.from({length:1001},()=>({text:'x'})))])assert.throws(()=>bulk.parseArchive(input));});
+test('Missing and blank titles import with usable titles and round-trip through backup validation',()=>{
+ const records=[{id:'missing',text:'clay glazing'},{id:'empty',title:'',text:'drum tuning'},{id:'blank',title:' \t\n',text:'stage lighting'}];
+ const conversations=bulk.parseArchive(JSON.stringify(records)).conversations;
+ assert.ok(conversations.every(c=>c.title==='Untitled conversation'));
+ assert.deepEqual(bulk.validateConversations(conversations),conversations);
+ const session={version:1,conversations,groups:bulk.buildGroups(conversations),warnings:[],importedAt:conversations[0].importedAt};
+ assert.equal(bulk.validateReviewSession(JSON.parse(JSON.stringify(session))).groups.length,3);
+ const real=bulk.parseArchive(JSON.stringify([{title:'  Original title  ',text:'source'}])).conversations[0];
+ assert.equal(real.title,'  Original title  ');
+});
+test('Untitled display placeholders never group unrelated sources or match placeholder Work Items',()=>{
+ const conversations=bulk.parseArchive(JSON.stringify([{id:'a',text:'clay glazing'},{id:'b',text:'drum tuning'}])).conversations;
+ for(const title of ['Untitled conversation',' Untitled Conversation ']){
+   const cs=conversations.map(c=>({...c,title}));
+   assert.deepEqual(bulk.extractSignals(cs[0]),{names:[],repositories:[],urls:[],entities:[],dates:[],words:[]});
+   assert.equal(bulk.buildGroups(cs).length,2);
+   assert.deepEqual(bulk.likelyMatches(cs,[{id,title}]),[]);
+ }
+ const related=conversations.map(c=>({...c,text:c.text+' https://github.com/clb1015/work-os'}));
+ assert.equal(bulk.buildGroups(related).length,1);
+ assert.ok(bulk.likelyMatches(related,[{id,title:'Work OS',source_url:'https://github.com/clb1015/work-os'}]).length);
+});
+test('Review backups preserve edited title drafts, accept old groups and reject invalid edited titles',()=>{
+ const session={version:1,conversations:sources,groups:bulk.buildGroups(sources),warnings:[],importedAt:sources[0].importedAt};
+ assert.equal(bulk.validateReviewSession(session).groups[0].editedTitle,undefined);
+ for(const editedTitle of ['My reviewed project','']){
+   const backup=JSON.parse(JSON.stringify({...session,groups:[{...session.groups[0],editedTitle}]}));
+   assert.equal(bulk.validateReviewSession(backup).groups[0].editedTitle,editedTitle);
+ }
+ for(const editedTitle of [null,42,'x'.repeat(301)])assert.throws(()=>bulk.validateReviewSession({...session,groups:[{...session.groups[0],editedTitle}]}));
+});
+test('Review title edits survive group selection, Review later, local reload and backup restore',async()=>{
+ const cs=[sources[0],{...sources[1],id:'unrelated',title:'Ceramics assessment',text:'clay glazing'}];
+ let stored={version:1,conversations:cs,groups:bulk.buildGroups(cs),warnings:[],importedAt:cs[0].importedAt};
+ const originalFetch=global.fetch;
+ global.fetch=async()=>Response.json({items:[],aiAvailable:false});
+ function mount(){
+   const state=[],deps=[],effects=[];let cursor=0;
+   const react={useState(initial){const i=cursor++;if(!(i in state))state[i]=initial;return [state[i],v=>{state[i]=typeof v==='function'?v(state[i]):v;}];},useRef(initial){const i=cursor++;return state[i]??(state[i]={current:initial});},useMemo(fn){cursor++;return fn();},useEffect(fn,next){const i=cursor++;if(!deps[i]||next.some((v,j)=>v!==deps[i][j])){deps[i]=next;effects.push(fn);}}};
+   const Component=load('components/bulk-history-review.tsx',{'react':react,'@/lib/bulk-history':bulk,'@/lib/bulk-history-storage':{loadReview:async()=>structuredClone(stored),storeReview:async(owner,s)=>{stored=structuredClone(s);}}}).default;
+   let tree;
+   const flush=()=>new Promise(resolve=>setImmediate(resolve));
+   async function render(){cursor=0;tree=Component({owner,onSaved(){},onOpen(){}});while(effects.length)effects.shift()();await flush();}
+   function nodes(value,out=[]){if(Array.isArray(value)){value.forEach(v=>nodes(v,out));}else if(value&&typeof value==='object'){out.push(value);nodes(value.props?.children,out);}return out;}
+   const find=predicate=>{const node=nodes(tree).find(predicate);assert.ok(node,'Expected review control');return node;};
+   const button=label=>find(n=>n.type==='button'&&n.props.children===label);
+   const titleInput=()=>find(n=>n.type==='input'&&n.props.maxLength===300);
+   const filter=()=>find(n=>n.type==='select'&&Array.isArray(n.props.children)&&n.props.children.some(c=>c?.props?.children==='all'));
+   return {render,button,titleInput,filter};
+ }
+ try{
+   let ui=mount();await ui.render();await ui.render();
+   ui.button(cs[0].title).props.onClick();await ui.render();
+   ui.titleInput().props.onChange({target:{value:'Reviewed custom title'}});await ui.render();
+   assert.equal(stored.groups[0].editedTitle,'Reviewed custom title');
+   ui.button(cs[1].title).props.onClick();await ui.render();
+   ui.button(cs[0].title).props.onClick();await ui.render();assert.equal(ui.titleInput().props.value,'Reviewed custom title');
+   ui.button('Review later').props.onClick();await ui.render();
+   assert.equal(stored.groups[0].state,'later');assert.equal(stored.groups[0].editedTitle,'Reviewed custom title');
+   ui=mount();await ui.render();await ui.render();
+   ui.filter().props.onChange({target:{value:'all'}});await ui.render();
+   ui.button(cs[0].title).props.onClick();await ui.render();assert.equal(ui.titleInput().props.value,'Reviewed custom title');
+   // Backup import validates the JSON before restoring the local queue.
+   stored=bulk.validateReviewSession(JSON.parse(JSON.stringify(stored)));
+   ui=mount();await ui.render();await ui.render();
+   ui.filter().props.onChange({target:{value:'all'}});await ui.render();
+   ui.button(cs[0].title).props.onClick();await ui.render();assert.equal(ui.titleInput().props.value,'Reviewed custom title');
+   ui.titleInput().props.onChange({target:{value:''}});await ui.render();
+   ui.button(cs[1].title).props.onClick();await ui.render();ui.button(cs[0].title).props.onClick();await ui.render();assert.equal(ui.titleInput().props.value,'');
+ }finally{global.fetch=originalFetch;}
+});
 test('Deterministic groups use repository signals and leave unrelated chats separate',()=>{const unrelated={...sources[0],id:'different',title:'Ceramics assessment',text:'Clay rubric.'};const groups=bulk.buildGroups([...sources,unrelated]);assert.equal(groups.length,2);assert.equal(groups[0].sourceIds.length,2);assert.ok(groups[0].candidates[0].signals.some(s=>s.startsWith('Repository:')));});
 test('Grouping and combining preserve every source with bounded requests',()=>{const cs=Array.from({length:19},(_,i)=>({...sources[0],id:String(i),text:'x'.repeat(90000)}));const groups=bulk.buildGroups(cs);assert.equal(groups.flatMap(g=>g.sourceIds).length,19);for(const g of groups)assert.ok(g.sourceIds.length<=2);assert.throws(()=>bulk.combineGroups(groups,groups.slice(0,2).map(g=>g.id),cs));const split=bulk.buildGroups([{...sources[0],id:'single',title:'Other',text:'other'},sources[1]]);assert.equal(bulk.combineGroups(split,split.map(g=>g.id),[{...sources[0],id:'single',title:'Other',text:'other'},sources[1]]).length,1);});
 test('Backups validate coverage, citations and bounded sources before restoring',()=>{const session={version:1,conversations:sources,groups:bulk.buildGroups(sources),warnings:[],importedAt:sources[0].importedAt};assert.equal(bulk.validateReviewSession(session).groups.length,1);assert.throws(()=>bulk.validateReviewSession({...session,groups:[]}));assert.throws(()=>bulk.validateReviewSession({...session,groups:[{...session.groups[0],analysis:{...analysis,facts:{...analysis.facts,constraints:[{text:'Fake',sourceIds:['unknown']}]}}}]}));});

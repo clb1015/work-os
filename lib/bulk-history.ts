@@ -8,7 +8,7 @@ export type Relation=typeof relations[number];
 export const categories=['decisions','completed','research','constraints','questions','nextSteps','superseded'] as const;
 export type HistoricalFact={text:string;sourceIds:string[]};
 export type Analysis={summary:string;relationships:{a:string;b:string;classification:Relation;reason:string}[];matches:{itemId:string;classification:Relation;reason:string}[];facts:Record<typeof categories[number],HistoricalFact[]>;recommendation:string;uncertainty:string[]};
-export type ReviewGroup={id:string;title:string;sourceIds:string[];candidates:Candidate[];state:'pending'|'later'|'ignored'|'saved';analysis?:Analysis;editedSummary?:string;supersededIds:string[];savedItemId?:string;saveId:string;manual?:boolean};
+export type ReviewGroup={id:string;title:string;sourceIds:string[];candidates:Candidate[];state:'pending'|'later'|'ignored'|'saved';analysis?:Analysis;editedTitle?:string;editedSummary?:string;supersededIds:string[];savedItemId?:string;saveId:string;manual?:boolean};
 export type ReviewSession={version:1;conversations:Conversation[];groups:ReviewGroup[];warnings:string[];importedAt:string};
 const obj=(v:unknown):Record<string,unknown>=>v&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:{};
 function dateValue(v:unknown):string|null{
@@ -43,7 +43,7 @@ export function parseArchive(raw:string,importedAt=new Date().toISOString()):{co
     if(!text.trim()){warnings.push(`Skipped conversation ${index+1}: no readable text.`);continue;}
     if(text.length>MAX_SOURCE_CHARS)throw new Error(`Conversation ${index+1} exceeds 100,000 characters. Split or summarize it; no source was truncated.`);
     const originalId=typeof record.id==='string'?record.id:typeof record.conversation_id==='string'?record.conversation_id:null;
-    const title=typeof record.title==='string'?record.title:'Untitled conversation';
+    const title=typeof record.title==='string'&&record.title.trim()?record.title:'Untitled conversation';
     if(title.length>300||(originalId&&originalId.length>300))throw new Error(`Conversation ${index+1} has an oversized title or identifier.`);
     const date=dateValue(record.create_time??record.date),identity=originalId||fingerprint(title+'\n'+text);
     if(seen.get(identity)?.has(text)){warnings.push(`Skipped repeated conversation ${index+1}.`);continue;}
@@ -69,12 +69,14 @@ const stop=new Set('a an and the to of in on for with from my our your this that
 const normalized=(s:string)=>s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 const words=(s:string)=>[...new Set(normalized(s).split(' ').filter(w=>w.length>2&&!stop.has(w)))];
 export function extractSignals(c:Pick<Conversation,'title'|'text'>):Signals{
-  const text=c.title+'\n'+c.text,unique=(v:string[])=>[...new Set(v)].slice(0,40);
+  // The display fallback is not evidence of shared work, in any title-derived channel.
+  const title=normalized(c.title)==='untitled conversation'?'':c.title;
+  const text=title+'\n'+c.text,unique=(v:string[])=>[...new Set(v)].slice(0,40);
   const urls=unique((text.match(/https?:\/\/[^\s<>"\])}]+/g)||[]).flatMap(v=>{try{const u=new URL(v.replace(/[.,;]+$/,''));if(u.username||u.password)return [];return [u.origin+u.pathname.replace(/\/$/,'')];}catch{return [];}}));
   const repositories=unique([...urls.filter(u=>/^https?:\/\/github.com\/[^/]+\/[^/]+/i.test(u)).map(u=>u.split('/').slice(3,5).join('/').toLowerCase()),...(text.match(/\b[\w.-]+\/[\w.-]+\b/g)||[]).filter(s=>s.includes('-'))]);
-  const names=unique([normalized(c.title),...(text.match(/(?:project|repository|repo|app)\s*(?:name)?\s*[:=]\s*([^\n]{3,100})/gi)||[]).map(v=>normalized(v.split(/[:=]/).slice(1).join(':')))]);
+  const names=unique([normalized(title),...(text.match(/(?:project|repository|repo|app)\s*(?:name)?\s*[:=]\s*([^\n]{3,100})/gi)||[]).map(v=>normalized(v.split(/[:=]/).slice(1).join(':')))].filter(Boolean));
   const entities=unique((text.match(/\b[A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+){1,4}\b/g)||[]).map(normalized).filter(v=>v.length>6));
-  return {names,repositories,urls,entities,dates:unique(text.match(/\b\d{4}-\d{2}-\d{2}\b/g)||[]),words:words(c.title)};
+  return {names,repositories,urls,entities,dates:unique(text.match(/\b\d{4}-\d{2}-\d{2}\b/g)||[]),words:words(title)};
 }
 export function candidateSignals(a:Signals,b:Signals){
   const shared=(x:string[],y:string[])=>x.filter(s=>y.includes(s));
@@ -130,6 +132,7 @@ export function validateReviewSession(input:unknown):ReviewSession{
   const ids=new Set(conversations.map(c=>c.id));if(ids.size!==conversations.length)return fail();
   const assigned=new Set<string>(),groupIds=new Set<string>();
   const groups=x.groups.map(value=>{const g=obj(value);
+    if(g.editedTitle!==undefined&&(typeof g.editedTitle!=='string'||g.editedTitle.length>300))return fail();
     if(typeof g.id!=='string'||!g.id||g.id.length>700||groupIds.has(g.id)||typeof g.title!=='string'||g.title.length>400||!Array.isArray(g.sourceIds)||!g.sourceIds.length||g.sourceIds.length>8||g.sourceIds.some(id=>typeof id!=='string'||!ids.has(id)||assigned.has(id))||new Set(g.sourceIds).size!==g.sourceIds.length||!['pending','later','ignored','saved'].includes(String(g.state))||typeof g.saveId!=='string'||!/^[0-9a-f-]{36}$/i.test(g.saveId)||!Array.isArray(g.supersededIds)||g.supersededIds.some(id=>!(g.sourceIds as unknown[]).includes(id))||g.editedSummary!==undefined&&(typeof g.editedSummary!=='string'||g.editedSummary.length>30000)||g.savedItemId!==undefined&&typeof g.savedItemId!=='string')return fail();
     groupIds.add(g.id);(g.sourceIds as string[]).forEach(id=>assigned.add(id));
     const sources=validateConversations(conversations.filter(c=>(g.sourceIds as string[]).includes(c.id))),candidates:Candidate[]=[];
