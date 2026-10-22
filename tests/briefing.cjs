@@ -86,7 +86,8 @@ function route({user={id:owner},available=true,readError=false,generateError=fal
   const api=load('app/api/daily-briefing/route.ts',{
     '@/lib/auth':{getAuthed:async()=>({user,supabase:{}})},
     '@/lib/work-read-server':{readReasoningSnapshot:async(_client,userId)=>{counts.reads++;assert.equal(userId,owner);if(readError)throw Error('db unavailable');return seed;}},
-    '@/lib/daily-briefing':briefing,
+    // Keep route fixture age aligned with its generated recommendation sections.
+    '@/lib/daily-briefing':{...briefing,buildBriefingContext:seed=>briefing.buildBriefingContext(seed,new Date('2026-10-05T16:00:00Z'))},
     '@/lib/briefing-provider':{aiBriefingAvailable:()=>available,briefingFailureMetadata:()=>({code:'unexpected'}),generateBriefing:async c=>{counts.generate++;if(generateError)throw Error('private upstream error');return briefing.validateBriefing(generated(),c);}},
     '@/lib/briefing-limits':{claimBriefingRequest:()=>limit?()=>{counts.released++;}:null},
   });return {api,counts,seed};
@@ -216,3 +217,4 @@ test('Generation timeout allows slower success and still aborts within the serve
     await assert.rejects(provider.generateBriefing(context()),error=>{assert.deepEqual(provider.briefingFailureMetadata(error),{code:'timeout'});return true;});
   }finally{AbortSignal.timeout=prev.timeout;global.fetch=prev.fetch;if(prev.key===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=prev.key;if(prev.enabled===undefined)delete process.env.WORK_OS_AI_ENABLED;else process.env.WORK_OS_AI_ENABLED=prev.enabled;}
 });
+
