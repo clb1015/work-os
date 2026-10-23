@@ -1,6 +1,8 @@
 /** Shared read model. Sample IDs must never be used as production identifiers. */
 export type Discipline = 'Music' | 'Visual arts' | 'Theatre' | 'Dance' | 'Not mapped';
-export type SchoolLevel = 'Elementary' | 'Middle' | 'High' | 'Not mapped';
+export type SchoolLevel = 'Elementary' | 'Middle' | 'High' | 'Combined' | 'Other' | 'Not mapped';
+export const disciplineOptions: readonly Discipline[] = ['Music', 'Visual arts', 'Theatre', 'Dance', 'Not mapped'];
+export const schoolLevelOptions: readonly SchoolLevel[] = ['Elementary', 'Middle', 'High', 'Combined', 'Other', 'Not mapped'];
 export type Provenance = Readonly<{
   kind: 'sample' | 'connected' | 'uploaded';
   sourceId: string;
@@ -15,6 +17,7 @@ export type School = Readonly<{
   coordinator: string;
   artsStudents?: number;
   gradeScope?: 'observed';
+  levelReviewed?: boolean;
   provenance: Provenance;
 }>;
 export type Program = Readonly<{
@@ -29,6 +32,7 @@ export type Program = Readonly<{
   staffingFte: number | null;
   priority: string;
   courseCode?: string;
+  disciplineReviewed?: boolean;
   provenance: Provenance;
 }>;
 export type LearningRecord = Readonly<{
@@ -84,5 +88,6 @@ export type ArtsSnapshot = Readonly<{
     crossSchoolStudents: number;
     observedGrades: string;
     unmappedOfferings: number;
+    mappingReviewed?: boolean;
   }>;
 }>;

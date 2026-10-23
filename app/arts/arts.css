@@ -19,6 +19,20 @@
 .arts-upload input::file-selector-button{background:var(--panel-3);color:var(--text);border:1px solid var(--line-strong);border-radius:4px;padding:8px 12px;margin-right:12px;cursor:pointer}
 .arts-import-notes{max-width:78ch;padding-left:22px;color:#b6c2cd;font-size:14px;line-height:1.7}
 .arts-import-notes li{margin:10px 0}
+.arts-column-mapping{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0;max-width:900px}
+.arts-column-mapping .arts-field{display:flex;flex-direction:column;gap:8px;font-size:13px;color:#b6c2cd}
+.arts-column-mapping select,.arts-review-list select{max-width:100%;min-height:42px;background:var(--panel-2);color:var(--text);border:1px solid var(--line-strong);border-radius:6px;padding:8px 10px;font:inherit}
+.arts-review-confirm{display:flex;align-items:flex-start;gap:10px;max-width:75ch;line-height:1.6;margin:24px 0 16px;font-size:14px;color:var(--text)}
+.arts-review-confirm input{flex-shrink:0;accent-color:var(--accent);width:18px;height:18px;margin-top:2px}
+.arts-review-list{list-style:none;padding:0;margin:16px 0;border-top:1px solid var(--line)}
+.arts-review-list li{display:grid;grid-template-columns:minmax(0,1fr) minmax(160px,240px);gap:16px;align-items:center;border-bottom:1px solid var(--line);padding:16px 0;font-size:14px}
+.arts-review-list strong{overflow-wrap:anywhere}
+.arts-review-list small{display:block;color:var(--muted);font-size:12px;line-height:1.6;margin-top:5px}
+.arts-review-list label{display:flex;flex-direction:column;gap:8px;font-size:12px;color:#b6c2cd}
+.arts-school-level-scroll{max-height:440px;overflow:auto;scrollbar-color:var(--line-strong) var(--bg)}
+.arts-school-level-scroll:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:760px){.arts-review-list li{grid-template-columns:1fr}.arts-review-list select{width:100%}}
+.arts-button:disabled{opacity:.5;cursor:not-allowed}
 .arts-pagination{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:16px 0;color:var(--muted);font-size:13px}
 .arts-sample-banner{background:var(--panel);border:1px solid var(--line);padding:14px 18px;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:28px;border-radius:8px;font-size:13px;line-height:1.6}
 .arts-sample-banner strong{color:#f3c575;white-space:nowrap}

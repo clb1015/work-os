@@ -9,7 +9,7 @@ Single-owner executive workspace backed by Supabase, deployed from GitHub `main`
 
 ## Arts OS
 
-The shared Arts OS navigation opens six modular dashboards at `/arts`, plus School 360 profiles. `/arts/data` accepts a reviewed CSV roster in the browser and keeps only aggregate summaries in that tab. Sample data remains clearly labeled until a roster is explicitly applied; domains absent from a roster show unmapped states. Projects & Priorities reads the existing owner-scoped Work OS records. The original workspace remains at `/`; no autonomous writes, database seeds, auth changes or deployment changes are introduced. See [Arts OS routes, model and source mapping](docs/arts-os.md).
+The shared Arts OS navigation opens six modular dashboards at `/arts`, plus School 360 profiles. `/arts/data` lets users map CSV columns, review/edit course disciplines and school levels, then explicitly approve and apply the aggregate summary in that tab. Sample data remains clearly labeled until a roster is applied; domains absent from a roster show unmapped states. Projects & Priorities reads the existing owner-scoped Work OS records. The original workspace remains at `/`; no autonomous writes, database seeds, auth changes or deployment changes are introduced. See [Arts OS routes, model and source mapping](docs/arts-os.md).
 
 ## Development
 

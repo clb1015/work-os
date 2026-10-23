@@ -1,8 +1,20 @@
 import type { ArtsSnapshot, Discipline, Program, School, SourceMapping } from './types';
+import { disciplineOptions, schoolLevelOptions } from './types';
 
 export const MAX_ROSTER_BYTES = 10 * 1024 * 1024;
 const MAX_ROWS = 100000;
-const requiredColumns = ['School', 'Student ID', 'Grade', 'Course Num', 'Course Title', 'School Year'];
+export const rosterColumns = ['School', 'Student ID', 'Grade', 'Course Num', 'Course Title', 'School Year'] as const;
+export type RosterColumn = typeof rosterColumns[number];
+export type RosterColumnMapping = Record<RosterColumn, string>;
+const requiredColumns = rosterColumns;
+
+export function suggestRosterColumns(headers: readonly string[]): RosterColumnMapping {
+  const normalized = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return Object.fromEntries(rosterColumns.map(column => {
+    const matches = headers.filter(header => normalized(header) === normalized(column));
+    return [column, matches.length === 1 ? matches[0] : ''];
+  })) as RosterColumnMapping;
+}
 
 /** RFC-style CSV parsing. No values are executed, logged or sent to a server. */
 export function parseRosterCsv(text: string): string[][] {
@@ -56,14 +68,16 @@ function sourceMappings(): SourceMapping[] {
   ];
 }
 
-export function importRoster(text: string, fileName: string, importedOn: string): ArtsSnapshot {
+export function importRoster(text: string, fileName: string, importedOn: string, mapping?: RosterColumnMapping): ArtsSnapshot {
   const rows = parseRosterCsv(text);
   if (rows.length < 2) throw new Error('The CSV must contain a header and at least one enrollment record.');
   const headers = rows[0];
   if (new Set(headers).size !== headers.length) throw new Error('The CSV contains duplicate column headings.');
-  const missing = requiredColumns.filter(column => !headers.includes(column));
-  if (missing.length) throw new Error(`Missing columns: ${missing.join(', ')}. Export the roster as CSV with these headings.`);
-  const column = Object.fromEntries(requiredColumns.map(name => [name, headers.indexOf(name)]));
+  const selected = mapping ?? Object.fromEntries(requiredColumns.map(column => [column, column])) as RosterColumnMapping;
+  const missing = requiredColumns.filter(column => !selected[column] || !headers.includes(selected[column]));
+  if (missing.length) throw new Error(`Missing columns: ${missing.join(', ')}. Select a source column for each field.`);
+  if (new Set(requiredColumns.map(column => selected[column])).size !== requiredColumns.length) throw new Error('Each required field needs a different source column.');
+  const column = Object.fromEntries(requiredColumns.map(name => [name, headers.indexOf(selected[name])]));
   const schools = new Map<string, { name: string; students: Set<string>; grades: Set<number> }>();
   const programs = new Map<string, { schoolId: string; name: string; code: string; students: Set<string> }>();
   const students = new Map<string, Set<string>>();
@@ -132,20 +146,20 @@ export function restoreRoster(value: string): ArtsSnapshot {
     !/^\d{4}-\d{4}$/.test(snapshot.academicYear) || !Array.isArray(snapshot.schools) || !Array.isArray(snapshot.programs) || !snapshot.schools.length || snapshot.schools.length > MAX_ROWS || snapshot.programs.length > MAX_ROWS ||
     !Array.isArray(snapshot.learning) || snapshot.learning.length || !Array.isArray(snapshot.resources) || snapshot.resources.length || !Array.isArray(snapshot.events) || snapshot.events.length) throw new Error('Saved roster is invalid.');
   for (const school of snapshot.schools) {
-    if (!keys(school, ['id', 'name', 'level', 'grades', 'gradeScope', 'enrollment', 'artsStudents', 'coordinator', 'provenance']) ||
-      !/^school-\d{4}$/.test(school.id) || !text(school.name) || school.level !== 'Not mapped' || !text(school.grades) || school.gradeScope !== 'observed' || school.enrollment !== null || !count(school.artsStudents) || school.coordinator !== 'Not mapped' || JSON.stringify(school.provenance) !== JSON.stringify(provenance)) throw new Error('Saved school summary is invalid.');
+    if (!keys(school, ['id', 'name', 'level', 'grades', 'gradeScope', 'enrollment', 'artsStudents', 'coordinator', 'provenance', 'levelReviewed']) ||
+      !/^school-\d{4}$/.test(school.id) || !text(school.name) || !schoolLevelOptions.includes(school.level) || (school.levelReviewed !== undefined && typeof school.levelReviewed !== 'boolean') || !text(school.grades) || school.gradeScope !== 'observed' || school.enrollment !== null || !count(school.artsStudents) || school.coordinator !== 'Not mapped' || JSON.stringify(school.provenance) !== JSON.stringify(provenance)) throw new Error('Saved school summary is invalid.');
   }
   const schoolIds = new Set(snapshot.schools.map(school => school.id));
   for (const program of snapshot.programs) {
-    if (!keys(program, ['id', 'schoolId', 'name', 'courseCode', 'discipline', 'academicYear', 'status', 'enrolled', 'capacity', 'staffingFte', 'priority', 'provenance']) ||
+    if (!keys(program, ['id', 'schoolId', 'name', 'courseCode', 'discipline', 'academicYear', 'status', 'enrolled', 'capacity', 'staffingFte', 'priority', 'provenance', 'disciplineReviewed']) ||
       !text(program.id) || !schoolIds.has(program.schoolId) || !text(program.name) || !text(program.courseCode, 32) || program.id !== `${program.schoolId}-course-${encodeURIComponent(program.courseCode!)}-${snapshot.academicYear}` ||
-      !['Music', 'Visual arts', 'Theatre', 'Dance', 'Not mapped'].includes(program.discipline) || program.academicYear !== snapshot.academicYear || program.status !== 'Active' || !count(program.enrolled) || program.capacity !== null || program.staffingFte !== null || program.priority !== 'Not mapped' || JSON.stringify(program.provenance) !== JSON.stringify(provenance)) throw new Error('Saved course summary is invalid.');
+      !disciplineOptions.includes(program.discipline) || (program.disciplineReviewed !== undefined && typeof program.disciplineReviewed !== 'boolean') || program.academicYear !== snapshot.academicYear || program.status !== 'Active' || !count(program.enrolled) || program.capacity !== null || program.staffingFte !== null || program.priority !== 'Not mapped' || JSON.stringify(program.provenance) !== JSON.stringify(provenance)) throw new Error('Saved course summary is invalid.');
   }
   const roster = snapshot.roster;
-  if (!keys(roster, ['fileName', 'sourceRows', 'uniqueStudents', 'courseEnrollments', 'repeatedEnrollments', 'crossSchoolStudents', 'observedGrades', 'unmappedOfferings']) || !roster || !text(roster.fileName) || !text(roster.observedGrades) ||
+  if (!keys(roster, ['fileName', 'sourceRows', 'uniqueStudents', 'courseEnrollments', 'repeatedEnrollments', 'crossSchoolStudents', 'observedGrades', 'unmappedOfferings', 'mappingReviewed']) || !roster || !text(roster.fileName) || !text(roster.observedGrades) || (roster.mappingReviewed !== undefined && typeof roster.mappingReviewed !== 'boolean') ||
     ![roster.sourceRows, roster.uniqueStudents, roster.courseEnrollments, roster.repeatedEnrollments, roster.crossSchoolStudents, roster.unmappedOfferings].every(count) ||
     roster.sourceRows > MAX_ROWS || roster.sourceRows !== roster.courseEnrollments + roster.repeatedEnrollments || roster.courseEnrollments !== snapshot.programs.reduce((sum, p) => sum + p.enrolled!, 0) ||
-    new Set(snapshot.programs.map(p => p.id)).size !== snapshot.programs.length || schoolIds.size !== snapshot.schools.length) throw new Error('Saved enrollment counts are invalid.');
+    roster.unmappedOfferings !== snapshot.programs.filter(program => program.discipline === 'Not mapped').length || new Set(snapshot.programs.map(p => p.id)).size !== snapshot.programs.length || schoolIds.size !== snapshot.schools.length) throw new Error('Saved enrollment counts are invalid.');
   // Static mapping text is reconstructed; it cannot carry arbitrary stored values.
   return { ...snapshot, sourceMappings: sourceMappings() };
 }

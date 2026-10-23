@@ -30,6 +30,7 @@ export function ArtsDataProvider({ initialSnapshot, ownerId, children }: { initi
   }, [key]);
   function useRoster(next: ArtsSnapshot) {
     // Called only by the explicit reviewed "Use in dashboards" button.
+    if (!next.roster?.mappingReviewed) throw new Error('Review the roster mappings before applying them.');
     const serialized = JSON.stringify(next);
     const checked = restoreRoster(serialized);
     window.sessionStorage.setItem(key, JSON.stringify(checked));
@@ -52,5 +53,5 @@ export function ArtsDataBanner() {
   const { snapshot, ready, storageError } = useArtsData();
   if (!ready) return <p role="status" className="arts-sample-banner">Loading this tab’s data…</p>;
   const uploaded = snapshot.provenance.kind === 'uploaded';
-  return <>{storageError && <p role="alert" className="arts-empty arts-error">{storageError}</p>}<div className="arts-sample-banner" role="note"><strong>{uploaded ? 'Uploaded roster' : 'Sample data'}</strong><p>{uploaded ? `${snapshot.roster?.fileName} · Aggregate summary in this tab. Source date not supplied; this is not a live connection.` : 'Schools, programs, instruction, resources and events are fictional examples. Existing Work OS projects are labeled separately.'}</p><Link href="/arts/data">{uploaded ? 'Manage data' : 'Upload school data'}</Link></div></>;
+  return <>{storageError && <p role="alert" className="arts-empty arts-error">{storageError}</p>}<div className="arts-sample-banner" role="note"><strong>{uploaded ? 'Uploaded roster' : 'Sample data'}</strong><p>{uploaded ? `${snapshot.roster?.fileName} · Aggregate summary in this tab. Source date not supplied; this is not a live connection.` : 'Schools, programs, instruction, resources and events are fictional examples. Existing Work OS projects are labeled separately.'}</p><Link href="/arts/data">{uploaded ? snapshot.roster?.mappingReviewed ? 'Manage data' : 'Review mappings' : 'Upload school data'}</Link></div></>;
 }

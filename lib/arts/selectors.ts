@@ -1,4 +1,8 @@
-import type { ArtsSnapshot } from './types';
+import type { ArtsSnapshot, School } from './types';
+
+export function schoolGradesLabel(school: School) {
+  return `${school.level === 'Not mapped' ? '' : `${school.level} · `}${school.gradeScope === 'observed' ? 'Observed grades' : 'Grades'} ${school.grades}`;
+}
 
 export function schoolScope(snapshot: ArtsSnapshot, schoolId?: string): ArtsSnapshot {
   if (!schoolId) return snapshot;
