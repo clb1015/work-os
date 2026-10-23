@@ -7,6 +7,10 @@ Single-owner executive workspace backed by Supabase, deployed from GitHub `main`
 - Vercel and Supabase project names: `work-os`
 - Next.js 16.3.8, React 19.2, TypeScript
 
+## Arts OS
+
+The shared Arts OS navigation opens six modular dashboards at `/arts`, plus School 360 profiles. `/arts/data` lets users map CSV columns, review/edit course disciplines and school levels, then explicitly approve and apply the aggregate summary in that tab. Sample data remains clearly labeled until a roster is applied; domains absent from a roster show unmapped states. Projects & Priorities reads the existing owner-scoped Work OS records. The original workspace remains at `/`; no autonomous writes, database seeds, auth changes or deployment changes are introduced. See [Arts OS routes, model and source mapping](docs/arts-os.md).
+
 ## Development
 
 Copy `.env.example` to `.env.local` and supply the existing project's URL and publishable key. Never add a service-role key to the browser or commit credentials.
@@ -51,3 +55,4 @@ Project History accepts one project at a time as pasted text or a `.txt`, `.md`,
 History retains provenance, conversation date and import date in `work_items.metadata.projectHistory`, without overwriting current status, next action, Notes or other project fields. It uses the caller session, explicit owner filters and RLS, with an updated_at compare-and-swap and retry deduplication. No schema changes, paid model requests or external source fetching are required. Imports are capped at 30,000 characters and 30 entries per project. Input files remain local until the reviewed text is submitted; remove student identifiers and secrets first.
 
 The continuation brief includes current project fields and historical text with an explicit instruction to flag conflicts and avoid rebuilding. History is not included in the existing AI attention briefing. Extraction, automatic conflict classification and repository/alias matching are future extensions; this release preserves the reviewed text rather than claiming to verify historical assertions.
+

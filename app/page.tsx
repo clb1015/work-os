@@ -9,6 +9,8 @@ import { itemsFromSnapshot, type WorkSnapshot, type WorkDetailsResponse, type It
 import DailyBriefing from '@/components/daily-briefing';
 import HistoryImporter from '@/components/history-importer';
 import BulkHistoryReview from '@/components/bulk-history-review';
+import WorkspaceSidebar from '@/components/arts/workspace-sidebar';
+import './arts/arts.css';
 
 type View = 'Command Center' | 'Board' | 'Projects' | 'Ideas' | 'Workflows' | 'Dashboards & Tools' | 'Waiting' | 'Completed' | 'Search' | 'Project History' | 'Chat Review';
 const views: View[] = ['Command Center','Board','Projects','Ideas','Workflows','Dashboards & Tools','Waiting','Completed','Search','Project History','Chat Review'];
@@ -49,6 +51,7 @@ export default function Home() {
   const [detailRefresh, setDetailRefresh] = useState(0);
   const [completion, setCompletion] = useState<{title:string;returnFocus:HTMLElement|null;resolve:(accepted:boolean)=>void}|null>(null);
   const completionPending = useRef(false);
+  const initialProjectOpened = useRef(false);
 
   function confirmCompletion(title:string):Promise<boolean>{
     if(completionPending.current) return Promise.resolve(false);
@@ -88,7 +91,14 @@ export default function Home() {
         const payload:WorkSnapshot=await response.json();
         if(cancelled) return;
         setUserId(payload.userId);
-        setItems(itemsFromSnapshot(payload));
+        const loadedItems = itemsFromSnapshot(payload);
+        setItems(loadedItems);
+        if (!initialProjectOpened.current) {
+          initialProjectOpened.current = true;
+          const requestedId = new URLSearchParams(window.location.search).get('item');
+          const requestedItem = loadedItems.find(item => item.id === requestedId);
+          if (requestedItem) setSelected(requestedItem);
+        }
         setDataError('');
       }catch(error){
         if(!cancelled){
@@ -281,11 +291,10 @@ export default function Home() {
 
   return (
     <><div className="app-shell" inert={!!completion}>
-      <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">W</span><div><strong>Work OS</strong><small>Executive workspace</small></div></div>
-        <nav>{views.map(v => <button key={v} className={view===v?'nav active':'nav'} onClick={() => setView(v)}><span className="nav-icon">{viewIcons[v]}</span><span>{v}</span></button>)}</nav>
+      <WorkspaceSidebar>
+        <nav aria-label="Work OS views">{views.map(v => <button key={v} className={view===v?'nav active':'nav'} onClick={() => setView(v)}><span className="nav-icon">{viewIcons[v]}</span><span>{v}</span></button>)}</nav>
         <div className="side-section"><span>Areas</span>{areas.filter(a=>a!=='Unassigned').slice(0,6).map(a => <button key={a} className="area-link" onClick={() => {setAreaFilter(a);setView('Board')}}>{a}</button>)}</div>
-      </aside>
+      </WorkspaceSidebar>
       <main className="main">
         <header className="topbar"><div className="topbar-title"><strong>Work OS</strong><span>{view}</span></div><div className="top-actions"><button className="ghost" onClick={() => setView('Search')}>⌕ Search</button><form action="/auth/signout" method="post"><button className="ghost" type="submit">Sign out</button></form><button className="primary" disabled={loadingData||!!dataError} onClick={() => setCaptureOpen(true)}>+ Capture</button></div></header>
         <section className="content">{loadingData && <div className="data-state" role="status">Loading your Work OS…</div>}{dataError && <div className="data-state error" role="alert">{dataError} <button onClick={()=>setReloadCount(v=>v+1)}>Retry</button></div>}{dataWarning && <div className="data-state error" role="alert">{dataWarning} <button onClick={()=>setDataWarning('')}>Dismiss</button></div>}{!loadingData&&!dataError&&<>
@@ -600,3 +609,4 @@ function useDialog<T extends HTMLElement = HTMLElement>(onClose:()=>void,returnF
   },[]);
   return ref;
 }
+
