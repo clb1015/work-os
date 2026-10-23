@@ -1,8 +1,8 @@
 /** Shared read model. Sample IDs must never be used as production identifiers. */
-export type Discipline = 'Music' | 'Visual arts' | 'Theatre' | 'Dance';
-export type SchoolLevel = 'Elementary' | 'Middle' | 'High';
+export type Discipline = 'Music' | 'Visual arts' | 'Theatre' | 'Dance' | 'Not mapped';
+export type SchoolLevel = 'Elementary' | 'Middle' | 'High' | 'Not mapped';
 export type Provenance = Readonly<{
-  kind: 'sample' | 'connected';
+  kind: 'sample' | 'connected' | 'uploaded';
   sourceId: string;
   asOf: string;
 }>;
@@ -13,6 +13,8 @@ export type School = Readonly<{
   grades: string;
   enrollment: number | null;
   coordinator: string;
+  artsStudents?: number;
+  gradeScope?: 'observed';
   provenance: Provenance;
 }>;
 export type Program = Readonly<{
@@ -26,6 +28,7 @@ export type Program = Readonly<{
   capacity: number | null;
   staffingFte: number | null;
   priority: string;
+  courseCode?: string;
   provenance: Provenance;
 }>;
 export type LearningRecord = Readonly<{
@@ -61,7 +64,7 @@ export type SourceMapping = Readonly<{
   domain: string;
   candidate: string;
   requiredFields: string;
-  status: 'Not connected';
+  status: 'Not connected' | 'Uploaded in this tab';
 }>;
 export type ArtsSnapshot = Readonly<{
   academicYear: string;
@@ -72,4 +75,14 @@ export type ArtsSnapshot = Readonly<{
   resources: readonly ResourceAllocation[];
   events: readonly ArtsEvent[];
   sourceMappings: readonly SourceMapping[];
+  roster?: Readonly<{
+    fileName: string;
+    sourceRows: number;
+    uniqueStudents: number;
+    courseEnrollments: number;
+    repeatedEnrollments: number;
+    crossSchoolStudents: number;
+    observedGrades: string;
+    unmappedOfferings: number;
+  }>;
 }>;

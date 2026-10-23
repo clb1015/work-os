@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import type { ArtsSnapshot, School } from '@/lib/arts/types';
 import { formatCount, formatDate, formatMoney, schoolHref } from '@/lib/arts/selectors';
 
-export function DashboardHeading({ title, description, year }: { title: string; description: string; year: string }) {
-  return <header className="arts-heading"><div><h1>{title}</h1><p>{description}</p></div><small>{year} · Sample snapshot</small></header>;
+export function DashboardHeading({ title, description, year, sample = true }: { title: string; description: string; year: string; sample?: boolean }) {
+  return <header className="arts-heading"><div><h1>{title}</h1><p>{description}</p></div><small>{year} · {sample ? 'Sample snapshot' : 'Uploaded roster'}</small></header>;
 }
 
 export function SchoolFilter({ schools, schoolId, route, query }: { schools: readonly School[]; schoolId: string; route: string; query?: string }) {
@@ -24,16 +24,17 @@ export function Table({ caption, headers, children }: { caption: string; headers
 export function Empty({ children }: { children: ReactNode }) { return <div className="arts-empty">{children}</div>; }
 
 export function SourceMappings({ snapshot }: { snapshot: ArtsSnapshot }) {
-  return <details className="arts-mapping" id="source-mapping"><summary>Data sources & mapping status</summary><p>Sample snapshot: {formatDate(snapshot.provenance.asOf)}. These are candidate source categories, not verified integrations. Mapping a source does not import records or authorize writes.</p>
-    <Table caption="Real data mapping — all connections pending" headers={['Domain', 'Candidate source', 'Required mapping', 'Status']}>{snapshot.sourceMappings.map(source => <tr key={source.id}><td>{source.domain}</td><td>{source.candidate}</td><td>{source.requiredFields}</td><td><span className="arts-status">{source.status}</span></td></tr>)}</Table>
+  return <details className="arts-mapping" id="source-mapping"><summary>Data sources & mapping status</summary><p>{snapshot.provenance.kind === 'sample' ? `Sample snapshot: ${formatDate(snapshot.provenance.asOf)}. These are candidate source categories, not verified integrations.` : `Uploaded ${formatDate(snapshot.provenance.asOf)}. The file has no extraction date. This tab holds aggregate counts, not a live connection.`} Mapping a source does not authorize writes.</p>
+    <Table caption="Data mapping and remaining source needs" headers={['Domain', 'Source', 'Mapping', 'Status']}>{snapshot.sourceMappings.map(source => <tr key={source.id}><td>{source.domain}</td><td>{source.candidate}</td><td>{source.requiredFields}</td><td><span className="arts-status">{source.status}</span></td></tr>)}</Table>
   </details>;
 }
 
 export function ProgramTable({ snapshot }: { snapshot: ArtsSnapshot }) {
-  if (!snapshot.programs.length) return <Empty>No programs match these filters. Clear the filters to see all sample programs.</Empty>;
-  return <Table caption="Sample program roster · enrollment counts program seats, not unique students" headers={['School / program', 'Discipline', 'Status', 'Enrolled / capacity', 'Staffing FTE', 'Program priority']}>{snapshot.programs.map(program => {
+  if (!snapshot.programs.length) return <Empty>No programs match these filters. Clear the filters to see all offerings.</Empty>;
+  const uploaded = snapshot.provenance.kind === 'uploaded';
+  return <Table caption={uploaded ? 'Uploaded course offerings · each student counted once per school / original course code / year' : 'Sample program roster · enrollment counts program seats, not unique students'} headers={['School / program', 'Discipline', 'Status', 'Enrolled / capacity', 'Staffing FTE', 'Program priority']}>{snapshot.programs.map(program => {
     const school = snapshot.schools.find(school => school.id === program.schoolId);
-    return <tr key={program.id}><td><Link href={schoolHref(program.schoolId)}>{school?.name ?? 'School not mapped'}</Link><small>{program.name}</small></td><td>{program.discipline}</td><td><span className={`arts-status arts-status-${program.status.toLowerCase()}`}>{program.status}</span></td><td className="arts-number">{formatCount(program.enrolled)} / {formatCount(program.capacity)}</td><td className="arts-number">{formatCount(program.staffingFte)}</td><td>{program.priority}</td></tr>;
+    return <tr key={program.id}><td><Link href={schoolHref(program.schoolId)}>{school?.name ?? 'School not mapped'}</Link><small>{program.name}</small>{program.courseCode && <small>Course {program.courseCode}</small>}</td><td>{program.discipline}</td><td><span className={`arts-status arts-status-${program.status.toLowerCase()}`}>{uploaded ? 'In roster' : program.status}</span></td><td className="arts-number">{formatCount(program.enrolled)} / {formatCount(program.capacity)}</td><td className="arts-number">{formatCount(program.staffingFte)}</td><td>{program.priority}</td></tr>;
   })}</Table>;
 }
 
@@ -56,7 +57,7 @@ export function ResourceTable({ snapshot }: { snapshot: ArtsSnapshot }) {
 }
 
 export function EventTable({ snapshot }: { snapshot: ArtsSnapshot }) {
-  if (!snapshot.events.length) return <Empty>No events are included for this selection. This sample calendar is incomplete.</Empty>;
+  if (!snapshot.events.length) return <Empty>No events are included for this selection. Events are not mapped from the current source.</Empty>;
   return <Table caption="Sample calendar · October–December 2026 · dates do not represent live commitments" headers={['Date', 'Event / school', 'Programs', 'Partner', 'Status']}>{[...snapshot.events].sort((a, b) => a.date.localeCompare(b.date)).map(event => {
     const school = snapshot.schools.find(school => school.id === event.schoolId);
     return <tr key={event.id}><td><time dateTime={event.date}>{formatDate(event.date)}</time></td><td><strong>{event.title}</strong><small><Link href={schoolHref(event.schoolId)}>{school?.name}</Link></small></td><td>{snapshot.programs.filter(program => event.programIds.includes(program.id)).map(program => program.name).join(', ')}</td><td>{event.partner ?? 'No partner recorded'}</td><td><span className={`arts-status arts-status-${event.status === 'Confirmed' ? 'active' : 'planning'}`}>{event.status}</span></td></tr>;

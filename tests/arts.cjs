@@ -1,10 +1,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { renderToStaticMarkup } = require('react-dom/server');
+const React = require('react');
 const { createLoader } = require('./support/arts-loader.cjs');
 const load = createLoader();
 const { sampleArtsSnapshot: snapshot } = load('lib/arts/sample-data.ts');
 const { schoolScope, artsSummary, formatMoney, formatCount } = load('lib/arts/selectors.ts');
+const { DashboardView, SchoolProfileView } = load('components/arts/dashboard-views.tsx');
+const renderDashboard = (module, params = {}) => renderToStaticMarkup(React.createElement(DashboardView, { module, snapshot, schoolId: params.school, query: params.q }));
+const renderSchool = schoolId => renderToStaticMarkup(React.createElement(SchoolProfileView, { snapshot, schoolId }));
 
 test('Sample records have unique IDs, provenance and valid school/program relationships', () => {
   const collections = ['schools', 'programs', 'learning', 'resources', 'events'];
@@ -48,18 +52,15 @@ test('Summary excludes planning enrollment and distinguishes unknown values from
   assert.equal(artsSummary(schoolScope(snapshot, 'sample-lake')).unknownBudgets, 1);
 });
 
-test('Dashboard context rejects invalid and ambiguous school IDs instead of showing district data', async () => {
-  const { dashboardContext } = load('lib/arts/page-context.ts');
-  for (const school of ['unknown', ['sample-cedar', 'sample-river']]) await assert.rejects(dashboardContext(Promise.resolve({ school })), /NEXT_NOT_FOUND/);
-  const scoped = await dashboardContext(Promise.resolve({ school: 'sample-cedar', q: '  MUSIC  ' }));
-  assert.equal(scoped.scoped.schools.length, 1);
-  assert.equal(scoped.query, 'MUSIC');
+test('Unknown school scope shows an explicit unavailable state instead of district totals', () => {
+  const html = renderDashboard('overview', { school: 'unknown' });
+  assert.match(html, /School data is not available in this tab/);
+  assert.doesNotMatch(html, /Arts at a glance/);
 });
 
 test('All sample dashboard routes render actual shared data with read-only GET filters', async () => {
   for (const slug of ['overview', 'programs', 'teaching', 'resources', 'events']) {
-    const page = load(`app/arts/${slug}/page.tsx`).default;
-    const html = renderToStaticMarkup(await page({ searchParams: Promise.resolve({ school: 'sample-cedar' }) }));
+    const html = renderDashboard(slug, { school: 'sample-cedar' });
     assert.match(html, /Sample snapshot/);
     assert.match(html, /method="get"/);
     assert.match(html, /Not connected/);
@@ -69,8 +70,7 @@ test('All sample dashboard routes render actual shared data with read-only GET f
 });
 
 test('Program search handles names, discipline, mixed case and no matches', async () => {
-  const page = load('app/arts/programs/page.tsx').default;
-  const search = async q => renderToStaticMarkup(await page({ searchParams: Promise.resolve({ q }) }));
+  const search = async q => renderDashboard('programs', { q });
   assert.match(await search('cEdAr'), /General music/);
   assert.doesNotMatch((await search('cEdAr')).split('Sample program roster')[1], /Concert band/);
   assert.match(await search('dance'), /Dance foundations/);
@@ -79,11 +79,10 @@ test('Program search handles names, discipline, mixed case and no matches', asyn
 });
 
 test('School 360 joins the same records and never invents existing project associations', async () => {
-  const page = load('app/arts/schools/[schoolId]/page.tsx').default;
-  const html = renderToStaticMarkup(await page({ params: Promise.resolve({ schoolId: 'sample-river' }) }));
+  const html = renderSchool('sample-river');
   for (const expected of ['Riverbend Middle', 'Beginning &amp; concert band', 'Student critique', 'Instrument repairs', 'Instrument clinic', 'not mapped']) assert.ok(html.includes(expected), expected);
   assert.doesNotMatch(html, /Family gallery evening|Dance ensemble/);
-  await assert.rejects(page({ params: Promise.resolve({ schoolId: 'unknown' }) }), /NEXT_NOT_FOUND/);
+  assert.match(renderSchool('unknown'), /School data is not available in this tab/);
 });
 
 test('Arts layout and project page deny unauthenticated access before reading project records', async () => {
@@ -121,10 +120,9 @@ test('Projects use the caller session, preserve records and link existing IDs wi
 });
 
 test('Unknown resource amounts and absent records are not presented as a zero budget', async () => {
-  const page = load('app/arts/resources/page.tsx').default;
-  const lake = renderToStaticMarkup(await page({ searchParams: Promise.resolve({ school: 'sample-lake' }) }));
+  const lake = renderDashboard('resources', { school: 'sample-lake' });
   assert.match(lake, /Not mapped/);
   assert.doesNotMatch(lake, /\$0/);
-  const harbor = renderToStaticMarkup(await page({ searchParams: Promise.resolve({ school: 'sample-harbor' }) }));
+  const harbor = renderDashboard('resources', { school: 'sample-harbor' });
   assert.match(harbor, /An absent record does not mean a zero budget/);
 });

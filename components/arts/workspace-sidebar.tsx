@@ -20,7 +20,7 @@ export default function WorkspaceSidebar({ children }: { children?: ReactNode })
   return <aside className="sidebar arts-sidebar">
     <Link className="brand arts-brand" href="/arts/overview" aria-label="Arts OS overview"><span className="brand-mark" aria-hidden="true">A</span><div><strong>Arts OS</strong><small>Fine & performing arts</small></div></Link>
     <Suspense fallback={<nav aria-label="Arts dashboards">{artsModules.map(module => <Link className="nav" key={module.slug} href={`/arts/${module.slug}`}>{module.name}</Link>)}</nav>}><ModuleLinks /></Suspense>
-    <div className="side-section arts-work-nav"><Link className="nav" href="/">Work OS workspace</Link>{children}</div>
+    <div className="side-section arts-work-nav"><Link className="nav" href="/arts/data">School data</Link><Link className="nav" href="/">Work OS workspace</Link>{children}</div>
     <p className="arts-sidebar-note">One workspace for arts programs and the work behind them.</p>
   </aside>;
 }
