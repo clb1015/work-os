@@ -13,7 +13,10 @@ const checkpointDays=['2026-11-02','2026-11-05','2026-11-10','2026-11-12','2026-
 const source=m=>'<li><b>'+esc(m.id)+' · '+esc(m.date)+' · '+esc(m.from)+'</b> · thread '+esc(m.thread)+'<br>'+esc(m.body)+'</li>';
 function card(c){
   const kind={promise:'Explicit promise',request:'Request awaiting agreement',opportunity:'Strategic opportunity'};
-  const fields=[kind[c.kind],c.status,c.owner?'Owner '+c.owner:null,c.reply,c.due?'Due '+c.due:null,c.followUp?'Suggested follow-up '+c.followUp:null].filter(Boolean);
+  const fields=[kind[c.kind],c.status,c.owner?'Owner '+c.owner:null,c.reply,c.agreementSource?'Agreed date '+c.expectedDate:null,
+    c.requestedDate && !c.agreementSource?c.requester+' requested '+c.requestedDate:null,
+    c.kind==='promise' && (!c.agreementSource || c.due!==c.expectedDate)?c.owner+' committed to '+c.due:null,
+    c.pendingAgreement?'Awaiting '+c.requester+'’s agreement':null,c.followUp?'Suggested follow-up '+c.followUp:null].filter(Boolean);
   return '<article><h3>'+esc(c.topic)+'</h3><p>'+fields.map(esc).join(' · ')+'</p><p>'+esc(c.next)+'</p>'+
     (c.draft?'<blockquote><b>Draft for review</b><br>'+esc(c.draft)+'</blockquote>':'')+
     '<p><b>Proposed project note</b> · '+esc(c.project)+' ('+esc(c.itemId)+')<br>'+esc(c.history.at(-1).body)+'</p>'+

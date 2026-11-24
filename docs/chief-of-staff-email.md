@@ -22,3 +22,6 @@ Run npm ci and npm test. Generate the offline briefing with node lab/email/rende
 
 ## Microsoft deployment requirements
 Before a tenant pilot, establish district-approved processing and storage boundaries, authorized mailbox and folder scope, permitted handling of restricted records, retention and deletion rules, and available Copilot/Outlook capabilities. Keep district mail, evidence and drafts within that boundary. Verify read-only retrieval of both incoming and sent messages with stable identifiers, durable paging/checkpoints and missed-run recovery. Validate tenant permissions with synthetic messages first. A failed or partial run must not advance the durable cursor. Human approval is required for sending, creating commitments, record mutations and production deployment. No connector or entitlement is assumed. Proposed timing is weekdays at 07:00 America/New_York. Scheduling and Calendar Intelligence are deferred.
+
+### Revised dates
+Preserve the requested date, owner's latest commitment and last requester-agreed date independently. Until the requester explicitly accepts the current revision, display the existing expectation alongside the commitment and prioritize using the earlier date. Acceptance leaves the obligation open. Preserve original dates and agreement evidence in the source history.

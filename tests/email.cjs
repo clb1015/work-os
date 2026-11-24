@@ -40,3 +40,22 @@ test('An unsupported request cannot inject markup into generated output',()=>{
     assert.match(html,/Review the bus estimate/);
   }finally{messages.pop();}
 });
+test('Unagreed changes preserve the requester expectation and its urgency',()=>{
+  const c=get(run('2026-11-10'),'Bus estimate');
+  assert.equal(c.requestedDate,'2026-11-06'); assert.equal(c.due,'2026-11-12');
+  assert.equal(c.attentionDate,c.requestedDate); assert.equal(c.pendingAgreement,true);
+  const agreement=messages.find(m=>m.id==='m11');
+  for(const override of [{from:'Chris'},{body:'Thanks.'},{body:'I agree to the revised date of 2026-11-14.'}]) {
+    const result=run('2026-11-12',[...messages.filter(m=>m.id!=='m11'),{...agreement,...override}]);
+    assert.ok(get(result,'Bus estimate').pendingAgreement);
+    assert.ok(result.exceptions.some(m=>m.id==='m11'));
+  }
+});
+test('Requester agreement updates the effective date and leaves the obligation open',()=>{
+  const c=get(run('2026-11-12'),'Bus estimate');
+  assert.equal(c.status,'Open');assert.equal(c.expectedDate,'2026-11-12');assert.equal(c.agreementSource,'m11');
+  assert.equal(c.pendingAgreement,false);assert.equal(c.requestedDate,'2026-11-06');
+  const revision={...messages[4],date:'2026-11-12',id:'m12',body:'I will send the bus estimate by 2026-11-16.'};
+  const later=get(run('2026-11-12',[...messages,revision]),'Bus estimate');
+  assert.ok(later.pendingAgreement);assert.equal(later.attentionDate,'2026-11-12');
+});

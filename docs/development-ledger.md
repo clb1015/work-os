@@ -8,3 +8,6 @@
 - Browser automation was blocked at Chromium startup by the sandbox. Personal visual acceptance is pending. No tenant access, classifier-quality or production-readiness claim. The prototype replays a full bounded history; there is no durable incremental mailbox cursor.
 - Gate: Chris reviews the five dated reports, especially revised bus deadline, open promise after response, venue follow-up, response tone and final decision ordering.
 - Exact next action after acceptance: add a second synthetic scenario with an acknowledgment and two obligations in one thread, introduce obligation-level source linkage and compare replay results after out-of-order and interrupted ingestion before enabling any Microsoft reads.
+
+## 2026-11-24 · Requested and revised dates
+Chris accepted displaying the original request alongside a revised commitment until the requester agrees. The November 10 checkpoint shows both dates and pending agreement. The November 12 checkpoint reflects Casey's explicit November 11 acceptance; delivery remains outstanding. Added two regression tests covering urgency, wrong sender, wrong date, vague acknowledgment, agreement and subsequent revision. All 72 tests pass. Next: personal review of the revised date display, followed by the two-obligation acknowledgment scenario.
