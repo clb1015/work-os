@@ -2,7 +2,7 @@
 const fs=require('node:fs');
 const ts=require('typescript');
 const {projects,messages}=require('./scenario.cjs');
-const {calendarDay,projectDay}=require('./calendar.cjs');
+const {calendarDay,projectDay,calendarAt,calendarChanges}=require('./calendar.cjs');
 const {replay}=require('./replay.cjs');
 // Isolated CLI process; same TypeScript transpiler as the existing briefing tests.
 require.extensions['.ts']=(mod,file)=>mod._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{
@@ -26,9 +26,9 @@ function card(c){
 }
 const clock=m=>Math.floor(m/60)+':'+String(m%60).padStart(2,'0');
 const range=b=>clock(b.start)+'–'+clock(b.end);
-function calendarSection(day,rows,context){
+function calendarSection(day,rows,context,calendar=calendarDay){
   if(day<calendarDay.date) return '';
-  const plan=projectDay(calendarDay,day,rows,context.records);
+  const plan=projectDay(calendar,day,rows,context.records);
   const evidence=row=>esc(row.project)+' · '+row.history.map(m=>esc(m.id)+' line '+m.clause).join(', ');
   let html='';
   if(plan.conflicts.length){
@@ -41,12 +41,27 @@ function calendarSection(day,rows,context){
   }
   if(plan.focus) {
     const f=plan.focus;
-    html+='<article><h3>Suggested focus block · '+range(f)+'</h3><p>'+esc(f.row.action)+' · due '+esc(f.row.attentionDate)+'</p><p>'+evidence(f.row)+'</p><p>This time is available after return travel. The block is a suggestion and the obligation stays open.</p></article>';
+    html+='<article><h3>Suggested focus block · '+range(f)+'</h3><p>'+esc(f.row.action)+' · due '+esc(f.row.attentionDate)+'</p><p>'+evidence(f.row)+'</p><p>The proposed time is available within the workday. The outline stays open until delivery.</p></article>';
   }
   if(plan.needsSlot) html+='<p>No uninterrupted block fits within the planning day. Review the deadline and competing work.</p>';
   if(plan.blocks.length) html+='<details><summary>Day schedule, preparation and travel · Eastern time</summary><ul>'+plan.blocks.map(b=>'<li>'+range(b)+' · '+esc(b.kind)+' · '+esc(b.text)+' · '+esc(b.eventId)+(b.project?' · '+esc(b.project):'')+'</li>').join('')+'</ul></details>';
   for(const f of plan.followups) html+='<article><h3>Meeting follow-up · due '+esc(f.row.attentionDate)+'</h3><p>'+esc(f.note.text)+'</p><p>Suggested action: incorporate the request before sending the existing outline.</p><p>'+esc(f.event.title)+' · '+esc(f.event.id)+' · '+esc(f.note.id)+' · '+evidence(f.row)+'</p></article>';
   return html;
+}
+function calendarReplay(day,rows,context){
+  if(day<calendarDay.date) return '';
+  const revised=calendarAt(calendarDay,calendarChanges,445);
+  if(day>calendarDay.date){
+    const followup=calendarSection(day,rows,context,revised);
+    return (followup || '<p>The visit was canceled. There is no meeting follow-up from that visit.</p>')+
+      '<details><summary>Original scenario with the visit held</summary>'+calendarSection(day,rows,context)+'</details>';
+  }
+  return '<h2>Morning calendar changes</h2>'+
+    '<details open><summary>7:25 · Residency visit canceled</summary><p>Visit preparation and both travel blocks are released. The transportation call stays at 11:15.</p>'+
+    calendarSection(day,rows,context,revised)+'</details>'+
+    '<details><summary>7:10 · Transportation call moved</summary><p>The call moved to 11:15–11:45. The visit and its return travel still occupy the earlier morning.</p>'+
+    calendarSection(day,rows,context,calendarAt(calendarDay,calendarChanges,430))+'</details>'+
+    '<details><summary>7:00 · Original schedule</summary>'+calendarSection(day,rows,context)+'</details>';
 }
 function render(){
   const snapshot={items:projects.map(p=>({...p,status:'Active',type:'Project',area:'Arts',updated_at:'2026-11-01T12:00:00Z'})),relationships:[],sourceLinks:[],sources:[],activity:[],tagLinks:[],tags:[]};
@@ -55,7 +70,7 @@ function render(){
       const context=buildBriefingContext(snapshot,new Date(day+'T12:00:00Z'));
       const {rows,exceptions,processed}=replay(messages,snapshot.items,day);
       const priorities=context.records.filter(r=>r.evidence.some(e=>e.id==='actionable_now'));
-      return '<details class="run"'+(day===calendarDay.date?' open':'')+'><summary><b>'+day+'</b> '+esc(labels[day]??'')+' · '+processed+' messages processed</summary>'+calendarSection(day,rows,context)+'<h2>Work Item priorities</h2>'+
+      return '<details class="run"'+(day===calendarDay.date?' open':'')+'><summary><b>'+day+'</b> '+esc(labels[day]??'')+' · '+processed+' messages processed</summary>'+calendarReplay(day,rows,context)+'<h2>Work Item priorities</h2>'+
         priorities.map(r=>'<p><b>'+esc(r.title)+'</b> · '+esc(r.nextAction)+'</p>').join('')+
         '<h2>Email attention</h2>'+rows.map(card).join('')+
         (exceptions.length?'<details><summary>Needs manual review ('+exceptions.length+')</summary><ol>'+exceptions.map(source).join('')+'</ol></details>':'')+'</details>';

@@ -43,3 +43,27 @@ test('Calendar order and repeated briefing generation preserve source state and 
   const html=render();assert.equal(html,render());
   for(const term of ['Suggested focus block · 11:15–12:00','Related email decision','Community arts grant','note-1','Work Item priorities']) assert.ok(html.includes(term));
 });
+const {calendarAt,calendarChanges}=require('../lab/email/calendar.cjs');
+test('Moving the call removes both overlaps but consumes the previously suggested focus time',()=>{
+  const original=plan(calendarAt(calendarDay,calendarChanges,420));
+  assert.deepEqual(original,plan());
+  const moved=plan(calendarAt(calendarDay,calendarChanges,430));
+  assert.equal(moved.conflicts.length,0);assert.equal(moved.needsSlot,true);
+  assert.deepEqual(moved.gaps,[{start:705,end:720}]);
+  assert.deepEqual(moved.blocks.filter(b=>b.eventId==='cal-3').map(b=>[b.start,b.end]),[[675,705]]);
+});
+test('Cancellation releases travel and preparation without resolving the linked outline',()=>{
+  const revised=calendarAt(calendarDay,calendarChanges,445),result=plan(revised);
+  assert.ok(result.blocks.every(b=>b.eventId!=='cal-2'));assert.equal(result.conflicts.length,0);
+  assert.deepEqual([result.focus.start,result.focus.end],[540,585]);
+  assert.equal(result.focus.row.obligationId,plan().focus.row.obligationId);
+  assert.equal(rows.filter(r=>r.obligationId===result.focus.row.obligationId && r.status==='Open').length,1);
+  assert.deepEqual(plan(revised,'2026-11-24').followups,[]);
+});
+test('Repeated and out-of-order revisions reproduce the same calendar without changing baseline',()=>{
+  const original=structuredClone(calendarDay);
+  const retries=[...calendarChanges].reverse().concat(calendarChanges);
+  assert.deepEqual(calendarAt(calendarDay,retries,445),calendarAt(calendarDay,calendarChanges,445));
+  assert.deepEqual(calendarDay,original);
+  assert.throws(()=>calendarAt(calendarDay,[calendarChanges[0],{...calendarChanges[0],start:650}],445),/Conflicting/);
+});

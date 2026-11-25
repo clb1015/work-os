@@ -55,4 +55,29 @@ function projectDay(calendar,day,rows,records){
   }
   return {blocks,conflicts,gaps,focus,needsSlot:Boolean(eligible && !slot),followups};
 }
-module.exports={calendarDay,projectDay};
+// Same-day source updates. The event ID survives a move; cancellation removes its derived blocks.
+const calendarChanges=[
+  {eventId:'cal-3',revision:2,minute:430,kind:'move',start:675,end:705},
+  {eventId:'cal-2',revision:2,minute:445,kind:'cancel'},
+];
+function calendarAt(calendar,changes,minute){
+  const latest=new Map();
+  for(const change of changes){
+    if(change.minute>minute) continue;
+    if(!calendar.events.some(e=>e.id===change.eventId)) throw Error('Unknown calendar event');
+    const previous=latest.get(change.eventId);
+    if(previous?.revision===change.revision && JSON.stringify(previous)!==JSON.stringify(change))
+      throw Error('Conflicting event revision');
+    if(!previous || previous.revision<change.revision) latest.set(change.eventId,change);
+  }
+  const events=calendar.events.flatMap(event=>{
+    const change=latest.get(event.id);
+    if(!change) return [event];
+    if(change.kind==='cancel') return [];
+    if(change.kind!=='move' || !Number.isInteger(change.start) || !Number.isInteger(change.end) ||
+       change.start<0 || change.end>1440 || change.start>=change.end) throw Error('Invalid calendar revision');
+    return [{...event,start:change.start,end:change.end}];
+  });
+  return {...calendar,events};
+}
+module.exports={calendarDay,projectDay,calendarAt,calendarChanges};

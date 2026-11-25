@@ -27,3 +27,10 @@ Chris accepted displaying the original request alongside a revised commitment un
 - All 83 tests passed, including the previous 78. Production build passed. Chromium at 390 and 1024 CSS pixels verified the default Monday view, schedule expansion, Tuesday note citations and page width.
 - Limits: synthetic 08:00–16:00 planning bounds, fixed local dates, supplied duration estimates and explicit project links. No district accounts, bookings, operational scheduling or production writes.
 - Personal acceptance pending. Next after acceptance: replay a moved meeting and a canceled visit, and verify the same briefing recalculates travel, conflicts and focus suggestions without duplicating the outline or retaining obsolete event evidence.
+
+## 2026-11-24 · Moved call and canceled visit
+- Chris accepted the synthetic calendar day. Extended the existing November 23 briefing with a 7:10 call move to 11:15–11:45 and a 7:25 visit cancellation. The first change clears the collision but leaves only a 15-minute gap. The second releases preparation and round-trip travel, making 9:00–9:45 available for the same open outline. Its deadline remains November 24.
+- The revised November 24 view omits the canceled visit’s note. The original held-visit scenario remains explicitly labeled and collapsed. No record or calendar mutation accompanies a suggested block.
+- Verified 86 tests, including all 83 previous tests, and a successful production build. Browser checks opened all revision stages and the next-day view, inspected the released travel and absent note, and checked phone and tablet widths.
+- Scope: stable event IDs, same-day notices, known synthetic durations. Personal acceptance of this replay is pending.
+- Exact next step after acceptance: package the approved unified briefing instructions, input/output contract and these replay examples for a synthetic Copilot acceptance run, with tenant capability checks before any operational connection.
