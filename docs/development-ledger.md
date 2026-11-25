@@ -55,3 +55,15 @@ User supplied the synthetic response for scoring. Exact Copilot surface/model un
 | 7 Action boundaries | Pass | m07 flagged; draft and proposed focus block clearly labeled. No execution claimed. Delivery-evidence wording scored under check 1. |
 
 Exact next action: repeat the original synthetic packet in a fresh approved chat with this instruction appended: “At every checkpoint, distinguish missing evidence, sender-reported completion and recipient-confirmed delivery. For a delegated promise due at the checkpoint with no completion report, state whom Chris should follow up with and when. Keep later reports separate.” Compare the full result to the same seven checks. Operational tenant capabilities remain unverified.
+
+## 2026-11-24 · Copilot acceptance run 2
+User supplied the second synthetic response. Exact surface and model unknown. Same frozen key as run 1. Three passes, four mismatches.
+
+1. Mismatch. “Not delivered as of checkpoint. No completion report.” The second sentence is supported. The first is unverified. Nov 12 and subsequent self-report are now classified correctly.
+2. Mismatch. “Promise remains active” conflicts with sender-reported budget completion. Only the outline remains active. Original request citations need m12 lines 1 and 2 respectively.
+3. Pass. Explicit follow-up with Jordan on Nov 10 and separate Nov 11 self-report.
+4. Mismatch. “Prep: 09:30-09:45” and “Outbound: 09:45-10:15” put outbound travel after the visit starts. Prep is 09:00–09:15, outbound 09:15–09:45. At 07:00 the call overlaps the visit 10:30–10:45 and return travel 10:45–11:00; focus is 11:15–12:00. At 07:10 only the call move is known; no 45-minute gap. At 07:25 both revisions apply; 09:00–09:45 is correct. Busy intervals were mislabeled as collisions.
+5. Mismatch. “No meeting note is applicable to either version” uses the previous morning's cutoff. On Nov 24 note-1 informs the open outline only in the held-visit scenario.
+6. Pass. Final 07:25 briefing includes the priority, outstanding decision, invitation, outline, feasible block and unsent draft.
+7. Pass. m07 flagged and no action claimed. Keep manual review read-only.
+Next diagnostic: test a handoff with explicit dated checkpoint rows and precomputed effective event intervals from the existing Work OS calendar engine. Retain the raw-input run as a distinct benchmark. Evaluate the revised handoff on the full seven-check fixture before operational use.
