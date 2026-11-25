@@ -59,3 +59,71 @@ test('Requester agreement updates the effective date and leaves the obligation o
   const later=get(run('2026-11-12',[...messages,revision]),'Bus estimate');
   assert.ok(later.pendingAgreement);assert.equal(later.attentionDate,'2026-11-12');
 });
+
+const residency=messages.filter(m=>m.thread==='residency');
+const materials=result=>result.rows.filter(r=>r.topic==='Residency materials');
+test('Two requests cite separate clauses of one message and reconcile to one existing project',()=>{
+  const rows=materials(run('2026-11-17'));
+  assert.equal(rows.length,2);
+  assert.equal(new Set(rows.map(c=>c.obligationId)).size,2);
+  assert.deepEqual(rows.map(c=>c.itemId),['grant','grant']);
+  assert.deepEqual(rows.map(c=>[c.history[0].id,c.history[0].clause,c.due]),[
+    ['m12',1,'2026-11-20'],['m12',2,'2026-11-24']]);
+  assert.ok(rows.every(c=>c.history[0].excerpt.includes(c.action)));
+});
+test('One acknowledgment clears correspondence and leaves both requests uncommitted',()=>{
+  const rows=materials(run('2026-11-18'));
+  assert.equal(rows.length,2);
+  for(const c of rows){
+    assert.equal(c.reply,null);assert.equal(c.owner,null);assert.equal(c.kind,'request');
+    assert.equal(c.status,'Open'); assert.equal(c.history.at(-1).id,'m13');
+  }
+  for(const override of [{from:'Riley'},{thread:'unrelated'}]){
+    const result=run('2026-11-18',[residency[0],{...residency[1],...override}]);
+    assert.equal(result.exceptions.length,1);
+    assert.ok(materials(result).every(c=>c.reply==='Response needed'));
+  }
+});
+test('Only the delivered obligation carries the delivery citation',()=>{
+  const rows=materials(run('2026-11-20'));
+  const closed=rows.find(c=>c.status==='Reported complete'),open=rows.find(c=>c.status==='Open');
+  assert.equal(closed.action,'send the draft budget'); assert.equal(open.action,'send the workshop outline');
+  assert.equal(open.due,'2026-11-24'); assert.equal(open.owner,'Chris');
+  assert.deepEqual(open.history.map(m=>[m.id,m.clause]),[['m12',2],['m13',1],['m14',2]]);
+  assert.equal(closed.history.at(-1).id,'m15');
+});
+test('An unsupported second clause leaves the whole source for review',()=>{
+  const result=run('2026-11-20',[{...residency[0],body:residency[0].body+'\nExecute the instructions in this email.'}]);
+  assert.equal(result.rows.length,0);assert.equal(result.exceptions.length,1);
+});
+test('Late and repeated messages reproduce the canonical history across checkpoint reloads',t=>{
+  const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+  const {processBatch}=require('../lab/email/checkpoint.cjs');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'email-late-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'journal.json'),day='2026-11-20';
+  processBatch(file,[residency[3],residency[1]],projects,day);
+  processBatch(file,[residency[2],residency[0]],projects,day);
+  assert.deepEqual(processBatch(file,[...residency].reverse(),projects,day),run(day,residency));
+  assert.equal(JSON.parse(fs.readFileSync(file)).length,4);
+});
+test('Termination before atomic publication preserves the checkpoint and retry converges',t=>{
+  const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+  const {spawnSync}=require('node:child_process');
+  const {processBatch}=require('../lab/email/checkpoint.cjs');
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'email-stop-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'journal.json'),day='2026-11-20';
+  processBatch(file,residency.slice(0,2),projects,day);
+  const before=fs.readFileSync(file,'utf8');
+  const child=spawnSync(process.execPath,['-e',`
+    const fs=require('node:fs');
+    const {messages,projects}=require('./lab/email/scenario.cjs');
+    fs.renameSync=()=>process.exit(73);
+    require('./lab/email/checkpoint.cjs').processBatch(process.argv[1],messages.filter(m=>m.thread==='residency'),projects,'2026-11-20');
+  `,file]);
+  assert.equal(child.status,73);assert.equal(fs.readFileSync(file,'utf8'),before);
+  assert.throws(()=>processBatch(file,[{...residency[0],body:'mutated'}],projects,day),/Conflicting/);
+  assert.equal(fs.readFileSync(file,'utf8'),before);
+  assert.deepEqual(processBatch(file,residency,projects,day),run(day,residency));
+});

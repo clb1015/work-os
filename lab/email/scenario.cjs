@@ -15,5 +15,9 @@ const messages = [
   ['m09','2026-11-13','bus-revised','Chris','Re: Concert transportation | Bus estimate','I sent the bus estimate.'],
   ['m10','2026-11-16','decision','Casey','Concert transportation | Bus allocation','Can you approve the bus allocation by 2026-11-18?'],
   ['m11','2026-11-11','bus-revised','Casey','Re: Concert transportation | Bus estimate','I agree to the revised date of 2026-11-12.'],
+  ['m12','2026-11-17','residency','Riley','Community arts grant | Residency materials','Can you send the draft budget by 2026-11-20?\nCan you send the workshop outline by 2026-11-24?'],
+  ['m13','2026-11-18','residency','Chris','Re: Community arts grant | Residency materials','I received both requests.'],
+  ['m14','2026-11-19','residency','Chris','Re: Community arts grant | Residency materials','I will send the draft budget by 2026-11-20.\nI will send the workshop outline by 2026-11-24.'],
+  ['m15','2026-11-20','residency','Chris','Re: Community arts grant | Residency materials','I sent the draft budget.'],
 ].map(([id,date,thread,from,subject,body])=>({id,date,thread,from,subject,body}));
 module.exports={projects,messages};
