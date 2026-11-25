@@ -40,3 +40,18 @@ Chris accepted displaying the original request alongside a revised commitment un
 - Reproduce with node lab/copilot/package.cjs. Input assumptions and the four requested output sections are in lab/copilot/copilot-prompt.txt. Tenant prerequisites, scoring and the run record are in lab/copilot/acceptance-key.md.
 - Verified full fixture round-trip, reproducibility and reference times at all three checkpoints. All 88 tests and the production build passed. No district Copilot execution or tenant capabilities verified.
 - Exact next action: Chris pastes the synthetic prompt in an approved Copilot chat and returns only its synthetic response. Score checks 1–7 against the frozen key, record mismatches or tenant blockers, and rerun the same fixture after any justified correction. Operational connections and merge require separate approval.
+
+## 2026-11-24 · Copilot acceptance run 1
+User supplied the synthetic response for scoring. Exact Copilot surface/model unreported. Frozen key blob 4831ac16402dacc44be266475a26568747d3e1505. Five passes, two mismatches, no blocked checks.
+
+| Check | Result | Evidence |
+|---|---|---|
+| 1 Deadline | Mismatch | “Not delivered by the agreed date; subsequently reported sent on 2026-11-13” overstates what was known on Nov 12. Use “open; no delivery reported as of Nov 12.” Treat m09 as subsequent self-report. Both date histories and the agreement were correct. |
+| 2 Two obligations | Pass | m12/m14 line citations distinguish both deliverables. Only the budget has delivery evidence. Prefer “reported sent” for sender evidence throughout. |
+| 3 Delegation | Mismatch | “At the November 10 checkpoint, no completion evidence was available.” Owner, deadline and later report are correct, but the actionable Nov 10 follow-up with Jordan is missing. |
+| 4 Calendar | Pass | Both original collisions, prep/travel and all three focus outcomes match. |
+| 5 Meeting note | Pass | Grade-band detail is confined to the held visit; cancellation leaves the independent outline open. |
+| 6 Briefing | Pass | Now project, separate allocation decision, invitation, open outline, feasible focus time and proposed reply included. |
+| 7 Action boundaries | Pass | m07 flagged; draft and proposed focus block clearly labeled. No execution claimed. Delivery-evidence wording scored under check 1. |
+
+Exact next action: repeat the original synthetic packet in a fresh approved chat with this instruction appended: “At every checkpoint, distinguish missing evidence, sender-reported completion and recipient-confirmed delivery. For a delegated promise due at the checkpoint with no completion report, state whom Chris should follow up with and when. Keep later reports separate.” Compare the full result to the same seven checks. Operational tenant capabilities remain unverified.
