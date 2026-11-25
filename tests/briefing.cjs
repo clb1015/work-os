@@ -99,7 +99,8 @@ test('Briefing API denies expired sessions and cross-origin or originless paid r
 test('Unconfigured AI still returns factual work signals without any model request',async()=>{
   const {api,counts}=route({available:false});const response=await api.GET();assert.equal(response.status,200);assert.match(response.headers.get('cache-control'),/no-store/);assert.equal((await response.json()).aiAvailable,false);assert.equal((await api.POST(request())).status,503);assert.equal(counts.generate,0);
 });
-test('Generation reads server-owned data, ignores caller context, and preserves records',async()=>{
+test('Generation reads server-owned data, ignores caller context, and preserves records',async(t)=>{
+  t.mock.timers.enable({apis:['Date'],now:new Date('2026-10-05T16:00:00Z')});
   const {api,counts,seed}=route(),before=structuredClone(seed);const response=await api.POST(request());assert.equal(response.status,200);const payload=await response.json();assert.equal(payload.briefing.priorities[0].workItemId,id);assert.equal(counts.reads,1);assert.equal(counts.generate,1);assert.equal(counts.released,1);assert.deepEqual(seed,before);
 });
 test('Failures are explicit, do not leak upstream details, and release generation lock',async()=>{

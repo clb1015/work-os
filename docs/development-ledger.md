@@ -1,0 +1,69 @@
+# Work OS development ledger
+
+## 2026-11-24 · Email Intelligence acceptance checkpoint
+- Recovered main at 15f6aed (PR #6). PR #3 implemented the owner-scoped reasoning projection, Eastern-time daily briefing and optional cited AI. README documents forced session renewal in preview. Natural token expiry is unverified. PRs #4–6 delivered history import, bulk reconciliation and title fixes. The separate Arts OS branch was inspected for overlapping documentation and left independent.
+- Reused buildBriefingContext, the Work Item representation and existing regression suite. No matching email specification or development ledger surfaced in the inspected repository history or project materials.
+- Implemented deterministic synthetic inbox/sent replay, read-only matching, source history, proposed notes and reply drafts, separate reply and obligation state, delegated follow-ups, opportunities and a self-contained acceptance report. All output is disposable simulation. No live reads, writes, migrations, schedule or model calls.
+- Verified 70 tests (64 existing, six new) and production build. An existing route test assumed October 2026 fixtures were recent; pinned that test's clock to its fixture date. The underlying briefing implementation was unchanged.
+- Browser automation was blocked at Chromium startup by the sandbox. Personal visual acceptance is pending. No tenant access, classifier-quality or production-readiness claim. The prototype replays a full bounded history; there is no durable incremental mailbox cursor.
+- Gate: Chris reviews the five dated reports, especially revised bus deadline, open promise after response, venue follow-up, response tone and final decision ordering.
+- Exact next action after acceptance: add a second synthetic scenario with an acknowledgment and two obligations in one thread, introduce obligation-level source linkage and compare replay results after out-of-order and interrupted ingestion before enabling any Microsoft reads.
+
+## 2026-11-24 · Requested and revised dates
+Chris accepted displaying the original request alongside a revised commitment until the requester agrees. The November 10 checkpoint shows both dates and pending agreement. The November 12 checkpoint reflects Casey's explicit November 11 acceptance; delivery remains outstanding. Added two regression tests covering urgency, wrong sender, wrong date, vague acknowledgment, agreement and subsequent revision. All 72 tests pass. Next: personal review of the revised date display, followed by the two-obligation acknowledgment scenario.
+
+## 2026-11-24 · Partial delivery in one thread
+- Completed engineering visual acceptance for the original November 10/12 revised-deadline checkpoint. Opened and inspected both cards and source histories using Chromium at 390 and 1024 CSS pixels. Earlier urgency, Casey's agreement and the still-open deliverable were visible. Repeated these checks against the final report.
+- Extended the same replay and report with a synthetic residency thread (November 17–20). Each obligation links to its originating line and later evidence. An acknowledgment clears the correspondence requirement. Separate promises establish ownership. Budget delivery is cited only on the budget; the outline remains open under the same grant Work Item.
+- Added a single-writer local synthetic message checkpoint. A subprocess terminated immediately before publication left the prior checkpoint readable. Retried, repeated and late batches converged with chronological replay. The single-writer model and controlled fixture language remain lab limitations.
+- Validation: 72 existing and six new tests passed (78 total), production build passed, Chromium expanded the November 18–20 cards and verified source line references, independent status and delivery evidence at both widths.
+- Acceptance: open the Work OS Email Acceptance report. November 18 should have two acknowledged requests and no owner; November 19 two explicit promises; November 20 only the outline should remain open, due November 24. Personal acceptance pending. Production and tenant access were outside this milestone.
+- Exact next action on Chris's acceptance: add a synthetic calendar day to this same lab, evaluate meeting prep, conflict, travel, available focus time, deadline planning and meeting follow-up, then combine those results with email evidence and existing Work Item priorities in the same daily briefing. Hold implementation until personal acceptance.
+
+## 2026-11-24 · Synthetic calendar day and unified briefing
+- Chris authorized proceeding from the two-obligation checkpoint. Extended the same report on the PR #8 branch using the existing Work Item briefing records and email replay.
+- November 23, 07:00 Eastern: a residency planning visit conflicts with the transportation call for 15 minutes and return travel overlaps the rest of the call. The briefing surfaces the outstanding bus allocation decision. Preparation and estimated travel occupy the morning. A 45-minute gap from 11:15 to noon fits Chris's open workshop outline before November 24, under the existing grant Work Item. Suggested blocks are read-only.
+- November 24, 07:00 Eastern: the previous afternoon’s recorded note about the grade-band breakdown is linked to the same open outline. The proposed focus session supplies no evidence of completion.
+- All 83 tests passed, including the previous 78. Production build passed. Chromium at 390 and 1024 CSS pixels verified the default Monday view, schedule expansion, Tuesday note citations and page width.
+- Limits: synthetic 08:00–16:00 planning bounds, fixed local dates, supplied duration estimates and explicit project links. No district accounts, bookings, operational scheduling or production writes.
+- Personal acceptance pending. Next after acceptance: replay a moved meeting and a canceled visit, and verify the same briefing recalculates travel, conflicts and focus suggestions without duplicating the outline or retaining obsolete event evidence.
+
+## 2026-11-24 · Moved call and canceled visit
+- Chris accepted the synthetic calendar day. Extended the existing November 23 briefing with a 7:10 call move to 11:15–11:45 and a 7:25 visit cancellation. The first change clears the collision but leaves only a 15-minute gap. The second releases preparation and round-trip travel, making 9:00–9:45 available for the same open outline. Its deadline remains November 24.
+- The revised November 24 view omits the canceled visit’s note. The original held-visit scenario remains explicitly labeled and collapsed. No record or calendar mutation accompanies a suggested block.
+- Verified 86 tests, including all 83 previous tests, and a successful production build. Browser checks opened all revision stages and the next-day view, inspected the released travel and absent note, and checked phone and tablet widths.
+- Scope: stable event IDs, same-day notices, known synthetic durations. Personal acceptance of this replay is pending.
+- Exact next step after acceptance: package the approved unified briefing instructions, input/output contract and these replay examples for a synthetic Copilot acceptance run, with tenant capability checks before any operational connection.
+
+## 2026-11-24 · Portable Copilot acceptance packet
+- Chris authorized packaging the accepted calendar replay. Generated a standalone paste-ready prompt from the two synthetic Work Items, 15 messages, calendar, note and revisions. The separate seven-check key compares email state, calendar timing, source evidence, drafting and read-only behavior.
+- Reproduce with node lab/copilot/package.cjs. Input assumptions and the four requested output sections are in lab/copilot/copilot-prompt.txt. Tenant prerequisites, scoring and the run record are in lab/copilot/acceptance-key.md.
+- Verified full fixture round-trip, reproducibility and reference times at all three checkpoints. All 88 tests and the production build passed. No district Copilot execution or tenant capabilities verified.
+- Exact next action: Chris pastes the synthetic prompt in an approved Copilot chat and returns only its synthetic response. Score checks 1–7 against the frozen key, record mismatches or tenant blockers, and rerun the same fixture after any justified correction. Operational connections and merge require separate approval.
+
+## 2026-11-24 · Copilot acceptance run 1
+User supplied the synthetic response for scoring. Exact Copilot surface/model unreported. Frozen key blob 4831ac16402dacc44be266475a26568747d3e1505. Five passes, two mismatches, no blocked checks.
+
+| Check | Result | Evidence |
+|---|---|---|
+| 1 Deadline | Mismatch | “Not delivered by the agreed date; subsequently reported sent on 2026-11-13” overstates what was known on Nov 12. Use “open; no delivery reported as of Nov 12.” Treat m09 as subsequent self-report. Both date histories and the agreement were correct. |
+| 2 Two obligations | Pass | m12/m14 line citations distinguish both deliverables. Only the budget has delivery evidence. Prefer “reported sent” for sender evidence throughout. |
+| 3 Delegation | Mismatch | “At the November 10 checkpoint, no completion evidence was available.” Owner, deadline and later report are correct, but the actionable Nov 10 follow-up with Jordan is missing. |
+| 4 Calendar | Pass | Both original collisions, prep/travel and all three focus outcomes match. |
+| 5 Meeting note | Pass | Grade-band detail is confined to the held visit; cancellation leaves the independent outline open. |
+| 6 Briefing | Pass | Now project, separate allocation decision, invitation, open outline, feasible focus time and proposed reply included. |
+| 7 Action boundaries | Pass | m07 flagged; draft and proposed focus block clearly labeled. No execution claimed. Delivery-evidence wording scored under check 1. |
+
+Exact next action: repeat the original synthetic packet in a fresh approved chat with this instruction appended: “At every checkpoint, distinguish missing evidence, sender-reported completion and recipient-confirmed delivery. For a delegated promise due at the checkpoint with no completion report, state whom Chris should follow up with and when. Keep later reports separate.” Compare the full result to the same seven checks. Operational tenant capabilities remain unverified.
+
+## 2026-11-24 · Copilot acceptance run 2
+User supplied the second synthetic response. Exact surface and model unknown. Same frozen key as run 1. Three passes, four mismatches.
+
+1. Mismatch. “Not delivered as of checkpoint. No completion report.” The second sentence is supported. The first is unverified. Nov 12 and subsequent self-report are now classified correctly.
+2. Mismatch. “Promise remains active” conflicts with sender-reported budget completion. Only the outline remains active. Original request citations need m12 lines 1 and 2 respectively.
+3. Pass. Explicit follow-up with Jordan on Nov 10 and separate Nov 11 self-report.
+4. Mismatch. “Prep: 09:30-09:45” and “Outbound: 09:45-10:15” put outbound travel after the visit starts. Prep is 09:00–09:15, outbound 09:15–09:45. At 07:00 the call overlaps the visit 10:30–10:45 and return travel 10:45–11:00; focus is 11:15–12:00. At 07:10 only the call move is known; no 45-minute gap. At 07:25 both revisions apply; 09:00–09:45 is correct. Busy intervals were mislabeled as collisions.
+5. Mismatch. “No meeting note is applicable to either version” uses the previous morning's cutoff. On Nov 24 note-1 informs the open outline only in the held-visit scenario.
+6. Pass. Final 07:25 briefing includes the priority, outstanding decision, invitation, outline, feasible block and unsent draft.
+7. Pass. m07 flagged and no action claimed. Keep manual review read-only.
+Next diagnostic: test a handoff with explicit dated checkpoint rows and precomputed effective event intervals from the existing Work OS calendar engine. Retain the raw-input run as a distinct benchmark. Evaluate the revised handoff on the full seven-check fixture before operational use.
