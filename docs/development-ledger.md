@@ -34,3 +34,9 @@ Chris accepted displaying the original request alongside a revised commitment un
 - Verified 86 tests, including all 83 previous tests, and a successful production build. Browser checks opened all revision stages and the next-day view, inspected the released travel and absent note, and checked phone and tablet widths.
 - Scope: stable event IDs, same-day notices, known synthetic durations. Personal acceptance of this replay is pending.
 - Exact next step after acceptance: package the approved unified briefing instructions, input/output contract and these replay examples for a synthetic Copilot acceptance run, with tenant capability checks before any operational connection.
+
+## 2026-11-24 · Portable Copilot acceptance packet
+- Chris authorized packaging the accepted calendar replay. Generated a standalone paste-ready prompt from the two synthetic Work Items, 15 messages, calendar, note and revisions. The separate seven-check key compares email state, calendar timing, source evidence, drafting and read-only behavior.
+- Reproduce with node lab/copilot/package.cjs. Input assumptions and the four requested output sections are in lab/copilot/copilot-prompt.txt. Tenant prerequisites, scoring and the run record are in lab/copilot/acceptance-key.md.
+- Verified full fixture round-trip, reproducibility and reference times at all three checkpoints. All 88 tests and the production build passed. No district Copilot execution or tenant capabilities verified.
+- Exact next action: Chris pastes the synthetic prompt in an approved Copilot chat and returns only its synthetic response. Score checks 1–7 against the frozen key, record mismatches or tenant blockers, and rerun the same fixture after any justified correction. Operational connections and merge require separate approval.
